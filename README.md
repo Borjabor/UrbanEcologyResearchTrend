@@ -98,3 +98,27 @@
 * 📤 **Deploy as a Streamlit app** or export a PDF report.
 
 ---
+
+
+Database schema:
+Papers table:
+
+| Column           | Type    | Notes                    |
+| ---------------- | ------- | ------------------------ |
+| `paperId`        | TEXT    | Primary Key              |
+| `title`          | TEXT    |                          |
+| `year`           | INTEGER |                          |
+| `authors`        | TEXT    | Comma-separated list of author IDs |
+| `url`            | TEXT    |                          |
+| `search_keyword` | TEXT    | For traceability         |
+| `firstAuthorId`  | TEXT    | Foreign key to `authors` |
+To be added in the future from the authors:
+| `location`    | TEXT | To be enriched via ROR (optional) |
+
+Authors table:
+
+| Column        | Type | Notes                             |
+| ------------- | ---- | --------------------------------- |
+| `authorId`    | TEXT | Primary Key                       |
+| `name`        | TEXT | From author API                   |
+| `affiliation` | TEXT | From author API                   |
