@@ -17,7 +17,7 @@
   * Implement logic to deal with paginated results and API limits.
 * 📦 **Data Storage**:
 
-  * Save as raw JSON, then normalize into a pandas-friendly format (CSV or SQLite if large).
+  * Save as SQLite, then normalize into a pandas dataframe.
 
 ---
 
