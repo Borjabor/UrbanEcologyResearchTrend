@@ -1,4 +1,4 @@
- ## 🧱 Phase 1: **Data Acquisition**
+## 🧱 Phase 1: **Data Acquisition**
 
 **Goal**: Retrieve urban ecology research papers from Semantic Scholar.
 
@@ -58,6 +58,8 @@
 ## 🌍 Phase 4: **Author/Institution Geographic Mapping**
 
 **Goal**: Visualize the spatial distribution of research activity.
+use author endpoint from semantic scholar to obtain institution data
+Use this data with Research Organization Registry (ROR) to obtain geographical data
 
 ### Key Components:
 
