@@ -34,28 +34,7 @@
 
 ---
 
-## 🔍 Phase 3: **Keyword & NLP Analysis**
-
-**Goal**: Identify hot topics and shifts in language use.
-
-### Key Components:
-
-* 📎 **Text Preprocessing**:
-
-  * Tokenization, stopword removal, lemmatization.
-* 📑 **Keyword Extraction**:
-
-  * Top-N words, TF-IDF, n-grams.
-* 🧠 **Topic Modeling**:
-
-  * LDA or BERTopic for discovering evolving research topics.
-* 📉 **Trend Detection**:
-
-  * How do certain terms rise/fall in frequency over time?
-
----
-
-## 🌍 Phase 4: **Author/Institution Geographic Mapping**
+## 🌍 Phase 3: **Author/Institution Geographic Mapping**
 
 **Goal**: Visualize the spatial distribution of research activity.
 use author endpoint from semantic scholar to obtain institution data
@@ -75,7 +54,7 @@ Use this data with Research Organization Registry (ROR) to obtain geographical d
 
 ---
 
-## 📚 Phase 5: **Presentation & Storytelling**
+## 📚 Phase 4: **Presentation & Storytelling**
 
 **Goal**: Deliver insights in a clean, reproducible format.
 
