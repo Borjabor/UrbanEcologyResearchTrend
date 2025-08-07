@@ -1,6 +1,7 @@
 # Urban Ecology Research Trends
 
 Analyzing keyword trends, publication growth, and thematic similarity in urban ecology literature.
+
 (A presentation of my findings, without code, can be seen below)
 
 ## Project Goals
@@ -52,6 +53,7 @@ In this notebook I analysed the trend of scientific research performed within ur
 
 **Note: I chose a date range starting on 1970 as that is the decade when the term Urban Ecology started getting traction. Data retrieval was cutoff at 2023 as there is still data missing from OpenAlex for the year 2024
 
+==============================================================
 ## Published Papers Time Series
 
 We'll start with a simple analysis, simply looking at how many papers were published every year from 1970 to present day. 
@@ -70,6 +72,7 @@ Although these are just guesses, and only with time we'll be able to confirm or 
 
 
 Same as above, every keyword follows this same trend. While some are clearly more popular than others, the graph curves are similar among all of the keywords. Now let's look at the trend of the entire breadth of 'ecology' research, a broad term that can encompass both studies in and out of the cities. Is this simply and overall trend the field or are researchers showing increasing interest in urban environemts?
+
 
 ==============================================================
 ## Analyzing Keyword Relationship
@@ -90,6 +93,7 @@ Next I looked into temporal data, seeing how the relatioships changed over time.
 
 A similar picture to our matrix above showed up here with the data over time. Relatioships didn't change much over time, with the one interesting case being the urban biodiversity X urban ecosystem case, which could mean a trend of shared research over time, though the value still isn't high enough to draw any conslusions.
 
+
 ===================================================================
 ## Regression Analysis on All Papers Published
 
@@ -106,13 +110,15 @@ Results:
 
 ![Regression analysis](images/urban_linear_vs_exponential.png)
 
-              -----------------------------
+
+            =   =   =   =   =   =   =   =
 KEY INSIGHTS - TOTAL URBAN ECOLOGY PAPERS GROWTH ANALYSIS:
 
 - The field shows EXPONENTIAL growth with 11.2% annual growth rate
 - Research output doubles every 6.5 years
 - Exponential model explains 95.7% of variance
 - High growth rate (11.2%/year) may not be sustainable long-term
+
 
 ### Urban Ecology vs General Ecology: Exponential Growth Comparison
 
@@ -133,9 +139,9 @@ EXPONENTIAL GROWTH COMPARISON: URBAN ECOLOGY vs GENERAL ECOLOGY:
 
 ![Urban vs Control regression](images/urban_vs_general_regression.png)
 
-------------------------------------------------------------------------
+
+                =   =   =   =   =   =   =   =
 KEY COMPARATIVE INSIGHTS:
-------------------------------------------------------------------------
 
 GROWTH RATES:
   ✓ Urban ecology is growing 3.3 percentage points FASTER
@@ -143,18 +149,20 @@ GROWTH RATES:
 DOUBLING TIMES:
   ✓ Urban ecology doubles 2.6 years FASTER than general ecology
 
--------------------------------------------------------------------------
+                =   =   =   =   =   =   =
 RESEARCH IMPLICATIONS:
--------------------------------------------------------------------------
+
 ✓ Urban ecology is emerging as a high-growth research area
 ✓ Research focus is shifting toward urban environments
 ✓ Urban ecology may soon surpass general ecology in publication volume
+
 
 ### Per Keyword Regression Analysis
 
 Now we'll move on to analysing each of the keywords, performing linear regression on both the regular data, then on a log-transformed data to see if any of the keywords might fit better a linear growth model.
 
 ![Per keyword regression](images/per_keyword_regression.png)
+
 
 ============================================================================
 ## Geographical Data Analysis
