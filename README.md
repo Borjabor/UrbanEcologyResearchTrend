@@ -12,7 +12,7 @@ Analyzing keyword trends, publication growth, and thematic similarity in urban e
 
 ## Tools
 
-- Python (Pandas, Seaborn, Scikit-learn)
+- Python (Pandas, Seaborn, SciPy)
 - Data: OpenAlex and Research Organization Registry (ROR), both via API
 
 
