@@ -1,4 +1,4 @@
-# 🏙️ Urban Ecology Research Trends
+# Urban Ecology Research Trends
 
 Analyzing keyword trends, publication growth, and thematic similarity in urban ecology literature.
 
@@ -8,7 +8,7 @@ Analyzing keyword trends, publication growth, and thematic similarity in urban e
 - Measure co-occurrence and thematic similarity
 - Visualize trends across decades
 
-## 📊 Tools
+## Tools
 
 - Python (Pandas, Seaborn, Scikit-learn)
 - Data: OpenAlex and Research Organization Registry (ROR), both via API
