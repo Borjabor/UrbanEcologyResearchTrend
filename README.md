@@ -1,146 +1,20 @@
-## 🧱 Phase 1: **Data Acquisition**
+# 🏙️ Urban Ecology Research Trends
 
-**Goal**: Retrieve urban ecology research papers from Semantic Scholar.
+Analyzing keyword trends, publication growth, and thematic similarity in urban ecology literature.
 
-### Key Components:
+## Project Goals
 
-* 🔑 **API Access**:
+- Identify key research topics in urban ecology
+- Measure co-occurrence and thematic similarity
+- Visualize trends across decades
 
-  * Understand [Semantic Scholar’s API](https://api.semanticscholar.org/).
-  * Handle authentication if needed.
-* 🧾 **Query Design**:
+## 📊 Tools
 
-  * Define search terms: `"urban ecology"`, `"urban biodiversity"`, etc.
-  * Limit by date range, keywords, fields of study.
-* 🪢 **Rate Limiting & Pagination**:
+- Python (Pandas, Seaborn, Scikit-learn)
+- Data: OpenAlex and Research Organization Registry (ROR), both via API
 
-  * Implement logic to deal with paginated results and API limits.
-* 📦 **Data Storage**:
-
-  * Save as SQLite, then normalize into a pandas dataframe.
 
 ---
-
-## 📊 Phase 2: **Exploratory Time Series Analysis**
-
-**Goal**: Understand research output trends over time.
-
-### Key Components:
-
-* 📆 **Extract & Clean Publication Dates**.
-* 📈 **Group by Year/Month** and count publications.
-* 🔁 **Rolling averages**, highlight spikes, dips.
-* 📅 **Optionally normalize by total scientific output per year** (to spot relative trends).
-
----
-
-## 🌍 Phase 3: **Keyword Correlation Analysis**
-
-**Goal**: Analyze keyword coocurrence among the papers in the database, identifying which appear together more often, and which appear by itslef the most.
-
-### Key Components:
-
-1. Data Preparation
- Extract paperId and search_keyword from the database
-
- Clean and split comma-separated keywords into lists
-
- Explode into one keyword per row if needed (optional for some analyses)
-
- Create a binary keyword–paper matrix (papers x keywords)
-
-📊 2. Keyword Frequency & Solo Ratio
- Count total papers for each keyword
-
- Count how often a keyword appears alone (solo)
-
- Calculate solo ratio: solo / total, rounded
-
-🔁 3. Keyword Co-occurrence
- Create a co-occurrence matrix (number of shared papers between each keyword pair)
-
- Normalize co-occurrence matrix if needed (e.g., by row total, Jaccard index, or PMI)
-
- Visualize as a heatmap (e.g., using seaborn.heatmap)
-
-📐 4. Jaccard Similarity Matrix
- Build sets of paper IDs for each keyword
-
- Compute Jaccard index for each pair
-​
- 
- Store in a matrix or long-form table
-
- Visualize as a heatmap or network graph (optional)
-
-📈 5. Pearson Correlation of Time Trends
- Create a yearly count of papers per keyword (year x keyword)
-
- Normalize per year if comparing trends (e.g., keyword frequency ÷ total papers that year)
-
- Detrend if needed (to remove overall publication growth effect)
-
- Compute Pearson correlation between keywords across years
-
-🌟 6. Optional/Advanced Analyses
- Network graph of co-occurring keywords (nodes = keywords, edges = co-occurrence or Jaccard)
-
- Hierarchical clustering or t-SNE/PCA to group keywords by similarity
-
- Association rules / lift if treating keywords like market basket data
-
- Keyword centrality in the network: find the most connected/influential topics
-
- Identify bridge keywords: keywords that co-occur with multiple otherwise disconnected topics
-
----
-
-## 🌍 Phase 4: **Author/Institution Geographic Mapping**
-
-**Goal**: Visualize the spatial distribution of research activity.
-use author endpoint from semantic scholar to obtain institution data
-Use this data with Research Organization Registry (ROR) to obtain geographical data
-
-### Key Components:
-
-* 👤 **Author Disambiguation**:
-
-  * Clean and standardize author/institution names.
-* 🏫 **Institution Geolocation**:
-
-  * Use an API (e.g., Google Maps, OpenStreetMap) to map locations.
-* 🗺️ **Map Visualization**:
-
-  * Use `folium`, `geopandas`, or `plotly` to create interactive or static maps.
-
----
-
-## 📚 Phase 5: **Presentation & Storytelling**
-
-**Goal**: Deliver insights in a clean, reproducible format.
-
-### Key Components:
-
-* 📓 **Jupyter Notebook Layout**:
-
-  * Clear separation of sections: Intro → Method → Results → Discussion.
-* 🖼️ **Visualizations**:
-
-  * Use Seaborn, Plotly, or Altair for expressive plots.
-* 🧪 **Reproducibility**:
-
-  * Fix random seeds, modularize functions, optionally include a `requirements.txt`.
-
----
-
-## 🛠️ Optional Add-ons (Stretch Goals)
-
-* 📥 **Cache API responses** (using `joblib`, `pickle`, or local DB).
-* 🧠 **NER or citation network analysis**.
-* 📤 **Deploy as a Streamlit app** or export a PDF report.
-
----
-
 
 Database schema:
 Papers table:
@@ -152,19 +26,63 @@ Papers table:
 | `year`           | INTEGER |                          |
 | `authors`        | TEXT    | Comma-separated list of author IDs |
 | `url`            | TEXT    |                          |
-| `search_keyword` | TEXT    | For traceability         |
-| `location`    | TEXT | country-code from first authors |
-| `firstAuthorId`  | TEXT    | Foreign key to `authors` |
+| `search_keyword` | TEXT    | Comma-separated list of keywords |
+| `firstAuthorCountryIso` |  TEXT | alpha-2 ISO country code |
+| `firstAuthorId`  | TEXT    | Foreign Key connects to Authors table |
+| `journal`        | TEXT    |                                    |
+| `citationCount`  | INTEGER |                          |
 
 Authors table:
 
-| Column        | Type | Notes                             |
-| ------------- | ---- | --------------------------------- |
-| `authorId`    | TEXT | Primary Key                       |
-| `name`        | TEXT | From author API                   |
-| `affiliation` | TEXT | From author API                   |
-| `ror`         | TEXT | To obtain city data from ror if desired  |  
+| Column          | Type | Notes                             |
+| --------------- | ---- | --------------------------------- |
+| `authorId`      | TEXT | Primary Key                       |
+| `name`          | TEXT |                                   |
+| `last_known_institution_name` | TEXT |                     |
+| `last_known_institution_ror` | TEXT | To obtain more geographical data from ROR |
+| `country_code`  | TEXT |                                   |
+| `country_name`  | TEXT |                                   |
 
 
-OpenAlex citation: 
-Priem, J., Piwowar, H., & Orr, R. (2022). OpenAlex: A fully-open index of scholarly works, authors, venues, institutions, and concepts. ArXiv. https://arxiv.org/abs/2205.01833
+
+Table output test:
+
+COMPREHENSIVE GROWTH ANALYSIS
+================================================================================
+
+MODEL COMPARISON RESULTS:
+------------------------------------------------------------
+              keyword  r_squared_linear  r_squared_log   better_fit  \
+2     urban ecosystem          0.615529       0.952564  Exponential   
+3  urban green spaces          0.615049       0.946375  Exponential   
+1       urban ecology          0.646892       0.947195  Exponential   
+0  urban biodiversity          0.674296       0.939802  Exponential   
+4    urban vegetation          0.693672       0.946765  Exponential   
+5      urban wildlife          0.719227       0.961730  Exponential   
+
+   annual_growth_rate_percent  r_squared_difference  
+2                   12.294559              0.337035  
+3                   12.061090              0.331326  
+1                   10.617228              0.300303  
+0                   17.977592              0.265506  
+4                    8.853252              0.253093  
+5                    8.589296              0.242503  
+
+
+LOGARITHMIC REGRESSION RESULTS (Testing Exponential Growth):
+--------------------------------------------------------------------------------
+              keyword  annual_growth_rate_percent  doubling_time_years  \
+0  urban biodiversity                   17.977592             4.192646   
+2     urban ecosystem                   12.294559             5.977714   
+3  urban green spaces                   12.061090             6.086967   
+1       urban ecology                   10.617228             6.869259   
+4    urban vegetation                    8.853252             8.170969   
+5      urban wildlife                    8.589296             8.411710   
+
+   r_squared       p_value                    trend_interpretation  
+0   0.939802  2.080995e-25  Significantly increasing (exponential)  
+2   0.952564  4.273582e-36  Significantly increasing (exponential)  
+3   0.946375  1.039787e-34  Significantly increasing (exponential)  
+1   0.947195  6.963555e-35  Significantly increasing (exponential)  
+4   0.946765  8.598278e-35  Significantly increasing (exponential)  
+5   0.961730  1.600434e-38  Significantly increasing (exponential)  
