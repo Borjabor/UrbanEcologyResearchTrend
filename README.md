@@ -1,6 +1,7 @@
 # Urban Ecology Research Trends
 
 Analyzing keyword trends, publication growth, and thematic similarity in urban ecology literature.
+(A presentation of my findings, without code, can be seen below)
 
 ## Project Goals
 
