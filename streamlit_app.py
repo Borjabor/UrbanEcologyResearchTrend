@@ -14,9 +14,6 @@ import numpy as np
 import sqlite3
 import plotly.express as px
 import plotly.graph_objects as go
-import math
-from itertools import combinations
-from collections import Counter
 import scipy.stats as stats
 import pycountry
 
@@ -83,9 +80,9 @@ def load_data():
         df_keywords = df_expanded.groupby(['search_keyword', 'year']).size().reset_index()
         df_keywords.columns = ['search_keyword', 'year', 'paper_count']
         
-        # Load country data
+        # Load country data (now using alpha-3 codes directly from database)
         df_countries = pd.read_sql_query("""
-            SELECT firstAuthorCountryIso as alpha2_code, COUNT(*) as paper_count
+            SELECT firstAuthorCountryIso as alpha3_code, COUNT(*) as paper_count
             FROM papers 
             WHERE firstAuthorCountryIso IS NOT NULL AND firstAuthorCountryIso != ''
             GROUP BY firstAuthorCountryIso 
@@ -112,26 +109,15 @@ def load_data():
         st.error(f"Error loading data: {e}")
         return None, None, None, None
 
-def get_country_name(alpha2_code):
+def get_country_name(alpha3_code):
     """
-    Convert alpha-2 country codes to full country names using pycountry.
-    """
-    try:
-        country = pycountry.countries.get(alpha_2=alpha2_code)
-        return country.name if country else alpha2_code
-    except (KeyError, AttributeError):
-        return alpha2_code
-
-
-def get_alpha3_code(alpha2_code):
-    """
-    Convert alpha-2 country codes to alpha-3 codes using pycountry.
+    Convert alpha-3 country codes to full country names using pycountry.
     """
     try:
-        country = pycountry.countries.get(alpha_2=alpha2_code)
-        return country.alpha_3 if country else alpha2_code
+        country = pycountry.countries.get(alpha_3=alpha3_code)
+        return country.name if country else alpha3_code
     except (KeyError, AttributeError):
-        return alpha2_code
+        return alpha3_code
 
 
 def get_actual_keywords(selected_keywords):
@@ -776,7 +762,7 @@ def main():
         
         # Filter country data by top N
         df_countries_filtered = df_countries.head(top_n_countries).copy()
-        df_countries_filtered.loc[:, 'country_name'] = df_countries_filtered['alpha2_code'].apply(get_country_name)
+        df_countries_filtered.loc[:, 'country_name'] = df_countries_filtered['alpha3_code'].apply(get_country_name)
         
         with geo_tab1:
             st.subheader("Top Research-Producing Countries")
@@ -882,15 +868,14 @@ def main():
         with geo_tab2:
             st.subheader("World Research Distribution")
             
-            # Prepare data for choropleth map
+            # Prepare data for choropleth map (database now contains alpha-3 codes)
             df_countries_choropleth = df_countries.copy()
-            df_countries_choropleth['country_name'] = df_countries_choropleth['alpha2_code'].apply(get_country_name)
-            df_countries_choropleth['alpha3_code'] = df_countries_choropleth['alpha2_code'].apply(get_alpha3_code)
+            df_countries_choropleth['country_name'] = df_countries_choropleth['alpha3_code'].apply(get_country_name)
             
             # Debug: Show sample data
             if st.checkbox("Show sample map data (debug)"):
                 st.write("Sample choropleth data:")
-                st.write(df_countries_choropleth[['alpha2_code', 'alpha3_code', 'country_name', 'paper_count']].head(10))
+                st.write(df_countries_choropleth[['alpha3_code', 'country_name', 'paper_count']].head(10))
             
             # Create choropleth map using alpha-3 codes
             fig_choropleth = px.choropleth(
@@ -898,7 +883,7 @@ def main():
                 locations='alpha3_code',
                 color='paper_count',
                 hover_name='country_name',
-                hover_data={'alpha3_code': False, 'alpha2_code': False, 'paper_count': ':,'},
+                hover_data={'alpha3_code': False, 'paper_count': ':,'},
                 color_continuous_scale='Viridis',
                 title="Global Distribution of Urban Ecology Research",
                 labels={'paper_count': 'Number of Papers'},
@@ -931,7 +916,7 @@ def main():
             st.subheader("Research Trends by Country Over Time")
             
             # Filter country-year data for heatmap
-            top_countries = df_countries_filtered['alpha2_code'].tolist()
+            top_countries = df_countries_filtered['alpha3_code'].tolist()
             df_country_years_filtered = df_country_years[
                 (df_country_years['country'].isin(top_countries)) &
                 (df_country_years['year'] >= min_year) &
@@ -972,7 +957,7 @@ def main():
                 # Select top 5 countries for time series
                 top_5_countries = df_countries_filtered.head(5)
                 df_top_countries_time = df_country_years_filtered[
-                    df_country_years_filtered['country'].isin(top_5_countries['alpha2_code'])
+                    df_country_years_filtered['country'].isin(top_5_countries['alpha3_code'])
                 ]
                 
                 if not df_top_countries_time.empty:
