@@ -74,78 +74,216 @@ st.set_page_config(
 # HELPER FUNCTIONS
 # ==========================================
 
-@st.cache_data  # Streamlit decorator to cache data for better performance
+def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progress=True, progress_placeholder=None):
+    """Get all papers using optimized pagination to bypass max rows limit."""
+    all_papers = []
+    page = 0
+    
+    # Initialize progress bar if requested
+    if show_progress:
+        if progress_placeholder:
+            progress_bar = progress_placeholder.progress(0)
+            status_text = progress_placeholder.empty()
+        else:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+        status_text.text("Loading data...")
+    
+    while True:
+        try:
+            start = page * page_size
+            end = start + page_size - 1
+            
+            # Build query
+            query = supabase.table('papers').select(columns).range(start, end)
+            
+            # Apply filters if provided
+            if filters:
+                for filter_func in filters:
+                    query = filter_func(query)
+            
+            result = query.execute()
+            page_data = result.data
+            
+            if not page_data:
+                break
+                
+            all_papers.extend(page_data)
+            
+            # Update progress
+            if show_progress:
+                # Estimate progress (we know there are ~66k papers)
+                estimated_total = 66000
+                current_progress = min(len(all_papers) / estimated_total, 1.0)
+                progress_bar.progress(current_progress)
+                status_text.text(f"Loaded {len(all_papers):,} papers...")
+            
+            if len(page_data) < page_size:
+                # Last page
+                break
+                
+            page += 1
+            
+            # Safety break
+            if page > 25:  # Reduced since we're using 5k page size (66k/5k = ~14 pages)
+                st.warning("Stopped pagination at 25 pages for safety")
+                break
+                
+        except Exception as e:
+            st.error(f"Error on page {page + 1}: {e}")
+            break
+    
+    # Clear progress indicators
+    if show_progress:
+        if progress_placeholder:
+            progress_placeholder.empty()
+        else:
+            progress_bar.empty()
+            status_text.empty()
+    
+    return all_papers
+
+@st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour, custom spinner
 def load_data():
     """
-    Load data from Supabase and parse the keyword combinations.
-    The @st.cache_data decorator ensures this only runs once per session.
+    Load data from Supabase using pagination to get all records.
+    This replicates the notebook's SQL query and data processing exactly.
     """
-    try:
-        # Load all papers with search keywords
-        response = supabase.table('papers').select(
-            'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount'
-        ).not_.is_('search_keyword', 'null').neq('search_keyword', '').execute()
+    # Create placeholders for loading messages that we can clear later
+    loading_placeholder = st.empty()
+    progress_placeholder = st.empty()
+    status_placeholder = st.empty()
+    
+    with loading_placeholder:
+        st.info("Data Loading Notice: This app loads 66,000+ research papers. Initial loading may take 30-60 seconds, but subsequent interactions will be instant thanks to caching.")
+    
+    with st.spinner("Loading data from Supabase... This may take a moment."):
+        try:
+            # STEP 1: Load all papers with pagination
+            # Equivalent to: SELECT year, search_keyword FROM papers 
+            # WHERE search_keyword IS NOT NULL AND search_keyword != ''
+            
+            filters = [
+                lambda q: q.not_.is_('search_keyword', 'null'),
+                lambda q: q.neq('search_keyword', '')
+            ]
+            
+            with status_placeholder:
+                st.info("Loading papers data (this may take a few seconds)...")
+            
+            all_papers_data = get_all_papers_paginated(
+                'paperId, year, search_keyword',  # Include paperId for unique counting
+                filters=filters,
+                page_size=5000,  # Larger page size for fewer requests
+                show_progress=True,
+                progress_placeholder=progress_placeholder
+            )
+            
+            df_all = pd.DataFrame(all_papers_data)
+            
+            # Replicate the exact SQL aggregation
+            df_raw = df_all.groupby(['year', 'search_keyword']).size().reset_index()
+            df_raw.columns = ['year', 'search_keyword', 'paper_count']
         
-        df_all_papers = pd.DataFrame(response.data)
-        
-        # Define the 6 original keywords
-        original_keywords = [
-            'urban ecology',
-            'urban biodiversity', 
-            'urban ecosystem',
-            'urban green spaces',
-            'urban vegetation',
-            'urban wildlife'
-        ]
-        
-        # Parse keyword combinations and create individual records
-        keyword_data = []
-        for _, row in df_all_papers.iterrows():
-            keywords_in_paper = [kw.strip() for kw in row['search_keyword'].split(',')]
-            for keyword in keywords_in_paper:
-                if keyword in original_keywords:
-                    keyword_data.append({
-                        'paperId': row['paperId'],
-                        'year': row['year'],
-                        'search_keyword': keyword,
-                        'title': row['title'],
-                        'authors': row['authors'],
-                        'firstAuthorCountryIso': row['firstAuthorCountryIso'],
-                        'citationCount': row['citationCount']
-                    })
-        
-        # Create expanded dataset with individual keyword records
-        df_expanded = pd.DataFrame(keyword_data)
-        
-        # Create keyword counts by year (count papers per keyword per year)
-        df_keywords = df_expanded.groupby(['search_keyword', 'year']).size().reset_index()
-        df_keywords.columns = ['search_keyword', 'year', 'paper_count']
-        
-        # Load country data (using alpha-3 codes directly from database)
-        country_response = supabase.table('papers').select(
-            'firstAuthorCountryIso'
-        ).not_.is_('firstAuthorCountryIso', 'null').neq('firstAuthorCountryIso', '').execute()
-        
-        country_data = pd.DataFrame(country_response.data)
-        df_countries = country_data.groupby('firstAuthorCountryIso').size().reset_index()
-        df_countries.columns = ['alpha3_code', 'paper_count']
-        df_countries = df_countries.sort_values('paper_count', ascending=False)
-        
-        # Load country-year data
-        country_year_response = supabase.table('papers').select(
-            'year, firstAuthorCountryIso'
-        ).not_.is_('firstAuthorCountryIso', 'null').neq('firstAuthorCountryIso', '').execute()
-        
-        country_year_data = pd.DataFrame(country_year_response.data)
-        df_country_years = country_year_data.groupby(['year', 'firstAuthorCountryIso']).size().reset_index()
-        df_country_years.columns = ['year', 'country', 'paper_count']
-        df_country_years = df_country_years.sort_values(['year', 'country'])
-        
-        return df_keywords, df_countries, df_expanded, df_country_years
-        
-    except Exception as e:
-        st.error(f"Error loading data from Supabase: {e}")
-        return None, None, None, None
+            # STEP 2: Apply EXACT same expansion logic as notebook
+            rows = []
+            total_rows = []
+            
+            for _, row in df_raw.iterrows():
+                keywords = [k.strip() for k in row['search_keyword'].split(',')]
+                
+                # Total tracking (exactly like notebook)
+                total_rows.append({
+                    'year': row['year'], 
+                    'search_keyword': 'total', 
+                    'paper_count': row['paper_count']
+                })
+                
+                # Keyword expansion (exactly like notebook)
+                for keyword in keywords:
+                    if keyword:
+                        rows.append({
+                            'year': row['year'], 
+                            'search_keyword': keyword, 
+                            'paper_count': row['paper_count']  # Use full aggregated count
+                        })
+            
+            # STEP 3: Final aggregation (exactly like notebook)
+            df_keywords = pd.DataFrame(rows).groupby(['year', 'search_keyword'])['paper_count'].sum().reset_index()
+            df_totals = pd.DataFrame(total_rows).groupby(['year', 'search_keyword'])['paper_count'].sum().reset_index()
+            
+            # Rename 'total' to match app expectations
+            df_totals['search_keyword'] = df_totals['search_keyword'].replace('total', 'Total (All Keywords)')
+            
+            # Combine for app use
+            df_keywords_combined = pd.concat([df_keywords, df_totals], ignore_index=True)
+            
+            # STEP 4: Create expanded individual paper data for other analyses
+            with status_placeholder:
+                st.info("Loading detailed paper data...")
+            
+            all_papers_full_data = get_all_papers_paginated(
+                'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount',
+                filters=filters,
+                page_size=5000,
+                show_progress=False  # Don't show progress for subsequent calls
+            )
+            
+            df_all_papers = pd.DataFrame(all_papers_full_data)
+            
+            # Define the 6 original keywords
+            original_keywords = [
+                'urban ecology', 'urban biodiversity', 'urban ecosystem',
+                'urban green spaces', 'urban vegetation', 'urban wildlife'
+            ]
+            
+            # Create expanded dataset for other analyses
+            expanded_data = []
+            for _, row in df_all_papers.iterrows():
+                keywords_in_paper = [kw.strip() for kw in row['search_keyword'].split(',')]
+                for keyword in keywords_in_paper:
+                    if keyword in original_keywords:
+                        expanded_data.append({
+                            'paperId': row['paperId'],
+                            'year': row['year'],
+                            'search_keyword': keyword,
+                            'title': row['title'],
+                            'authors': row['authors'],
+                            'firstAuthorCountryIso': row['firstAuthorCountryIso'],
+                            'citationCount': row['citationCount']
+                        })
+            
+            df_expanded = pd.DataFrame(expanded_data)
+            
+            # Optimize: Reuse the same full dataset for country data instead of separate queries
+            df_papers_with_countries = df_all_papers[
+                (df_all_papers['firstAuthorCountryIso'].notna()) & 
+                (df_all_papers['firstAuthorCountryIso'] != '')
+            ]
+            
+            # Country data from existing dataset
+            df_countries = df_papers_with_countries.groupby('firstAuthorCountryIso').size().reset_index()
+            df_countries.columns = ['alpha3_code', 'paper_count']
+            df_countries = df_countries.sort_values('paper_count', ascending=False)
+            
+            # Country-year data from existing dataset
+            df_country_years = df_papers_with_countries.groupby(['year', 'firstAuthorCountryIso']).size().reset_index()
+            df_country_years.columns = ['year', 'country', 'paper_count']
+            df_country_years = df_country_years.sort_values(['year', 'country'])
+            
+            # Clear all loading messages
+            loading_placeholder.empty()
+            status_placeholder.empty()
+            progress_placeholder.empty()
+            
+            # IMPORTANT: Calculate total unique papers for accurate reporting
+            total_unique_papers = len(df_all_papers)
+            
+            return df_keywords_combined, df_countries, df_expanded, df_country_years, total_unique_papers, df_totals
+            
+        except Exception as e:
+            st.error(f"Error loading data from Supabase: {e}")
+            return None, None, None, None, 0, None
 
 def get_country_name(alpha3_code):
     """
@@ -410,6 +548,7 @@ def main():
     
     # App title and description
     st.title("Urban Ecology Research Trends")
+    
     st.markdown("""
     **Interactive Dashboard for Urban Ecology Research Analysis**
     
@@ -419,16 +558,31 @@ def main():
     """)
     
     # Load data
-    with st.spinner("Loading data..."):  # Show loading spinner
-        df_keywords, df_countries, df_expanded, df_country_years = load_data()
+    df_keywords, df_countries, df_expanded, df_country_years, total_unique_papers, df_totals = load_data()
     
     if df_keywords is None:
         st.error("Failed to load data from Supabase. Please check the connection and table setup.")
-        st.info("💡 Common issues:")
+        st.info("Common issues:")
         st.write("- Row Level Security (RLS) may be blocking access")
         st.write("- Table may be empty or have different column names")
         st.write("- API key may not have sufficient permissions")
         return
+    
+    # Show data loaded confirmation with dismiss functionality
+    if 'show_loading_messages' not in st.session_state:
+        st.session_state.show_loading_messages = True
+    
+    if st.session_state.show_loading_messages:
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.success(f"Data successfully loaded: {total_unique_papers:,} unique papers ready for analysis!")
+            st.info("Tip: All interactions are now instant thanks to caching.")
+        
+        with col2:
+            if st.button("✕ Dismiss", help="Hide these loading messages"):
+                st.session_state.show_loading_messages = False
+                st.rerun()
     
     # ==========================================
     # SIDEBAR CONTROLS
@@ -486,30 +640,25 @@ def main():
     # Filter data based on selections
     # Handle "Total" option separately
     if "Total (All Keywords)" in selected_keywords:
-        # If Total is selected, include all keywords for aggregation
-        actual_keywords = available_keywords
-        df_filtered = df_keywords[
-            (df_keywords['search_keyword'].isin(actual_keywords)) &
-            (df_keywords['year'] >= min_year) &
-            (df_keywords['year'] <= max_year)
-        ]
+        # Use the CORRECT df_totals for Total line, not the incorrectly calculated one
+        df_totals_filtered = df_totals[
+            (df_totals['year'] >= min_year) & 
+            (df_totals['year'] <= max_year)
+        ].copy()
+        df_totals_filtered['search_keyword'] = 'Total (All Keywords)'  # Rename to match app expectations
         
-        # Create aggregated data for total
-        df_total = df_filtered.groupby('year')['paper_count'].sum().reset_index()
-        df_total['search_keyword'] = 'Total (All Keywords)'
-        
-        # If only Total is selected, use just the total data
+        # If only Total is selected, use just the correct total data
         if len(selected_keywords) == 1:
-            df_filtered = df_total
+            df_filtered = df_totals_filtered
         else:
-            # Include both individual keywords and total
+            # Include both individual keywords and correct total
             individual_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
             df_individual = df_keywords[
                 (df_keywords['search_keyword'].isin(individual_keywords)) &
                 (df_keywords['year'] >= min_year) &
                 (df_keywords['year'] <= max_year)
             ]
-            df_filtered = pd.concat([df_individual, df_total], ignore_index=True)
+            df_filtered = pd.concat([df_individual, df_totals_filtered], ignore_index=True)
     else:
         # Regular filtering for individual keywords only
         df_filtered = df_keywords[
@@ -564,11 +713,45 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            total_papers = df_filtered['paper_count'].sum()
+            # Calculate total papers correctly using df_totals
+            if "Total (All Keywords)" in selected_keywords:
+                # Use the correct totals from df_totals filtered by year range
+                df_totals_filtered = df_totals[
+                    (df_totals['year'] >= min_year) & 
+                    (df_totals['year'] <= max_year)
+                ]
+                total_papers = df_totals_filtered['paper_count'].sum()
+            else:
+                # For individual keywords only, we need to calculate unique papers
+                # Get the years that have the selected keywords
+                years_with_keywords = df_filtered['year'].unique()
+                df_totals_for_years = df_totals[
+                    (df_totals['year'].isin(years_with_keywords)) &
+                    (df_totals['year'] >= min_year) & 
+                    (df_totals['year'] <= max_year)
+                ]
+                total_papers = df_totals_for_years['paper_count'].sum()
+            
             st.metric("Total Papers", f"{total_papers:,}")
         
         with col2:
-            avg_per_year = df_filtered.groupby('year')['paper_count'].sum().mean()
+            # Calculate average per year correctly using df_totals
+            if "Total (All Keywords)" in selected_keywords:
+                df_totals_filtered = df_totals[
+                    (df_totals['year'] >= min_year) & 
+                    (df_totals['year'] <= max_year)
+                ]
+                avg_per_year = df_totals_filtered['paper_count'].mean()
+            else:
+                # For individual keywords, use the same years as above
+                years_with_keywords = df_filtered['year'].unique()
+                df_totals_for_years = df_totals[
+                    (df_totals['year'].isin(years_with_keywords)) &
+                    (df_totals['year'] >= min_year) & 
+                    (df_totals['year'] <= max_year)
+                ]
+                avg_per_year = df_totals_for_years['paper_count'].mean()
+            
             st.metric("Avg Papers/Year", f"{avg_per_year:.1f}")
         
         with col3:
@@ -828,7 +1011,7 @@ def main():
                         st.write(f"• Growth rate: {linear_kw['slope']:.2f} papers/year")
                         st.write(f"• R² score: {linear_kw['r_squared']:.3f}")
                         st.write(f"• P-value: {linear_kw['p_value']:.2e}")
-                        st.write(f"• Significant: {'Yes' if linear_kw['significant'] else 'No'}")
+                        st.write(f"• Significant: {'Yes' if linear_kw['significant_trend'] else 'No'}")
                     
                     with col2:
                         st.markdown("**Exponential Model:**")
@@ -1131,7 +1314,6 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            total_unique_papers = len(df_expanded)
             st.metric("Total Unique Papers", f"{total_unique_papers:,}")
         
         with col2:
@@ -1144,10 +1326,11 @@ def main():
         
         # Data quality metrics
         st.subheader("Data Quality")
-        papers_with_keywords = len(df_expanded)
+        expanded_instances = len(df_expanded)
         papers_with_countries = df_countries['paper_count'].sum()
         
-        st.write(f"• Papers with keyword data: {papers_with_keywords:,}")
+        st.write(f"• Unique papers in dataset: {total_unique_papers:,}")
+        st.write(f"• Keyword instances (papers × keywords): {expanded_instances:,}")
         st.write(f"• Papers with country data: {papers_with_countries:,}")
         st.write(f"• Data completeness: Good coverage across time period")
 
