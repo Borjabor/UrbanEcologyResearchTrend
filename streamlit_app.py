@@ -11,11 +11,54 @@ Author: Your Name
 import streamlit as st
 import pandas as pd
 import numpy as np
-import sqlite3
 import plotly.express as px
 import plotly.graph_objects as go
 import scipy.stats as stats
 import pycountry
+import os
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+# Load environment variables for local development
+load_dotenv()
+
+# ==========================================
+# SUPABASE CONNECTION SETUP
+# ==========================================
+
+def get_supabase_client():
+    """
+    Initialize Supabase client using environment variables or Streamlit secrets.
+    """
+    try:
+        url = None
+        key = None
+        
+        # Try environment variables first (for local development)
+        url = os.getenv("DB_URL")
+        key = os.getenv("DB_KEY")
+        
+        # If not found, try Streamlit secrets (for deployment)
+        if not url or not key:
+            try:
+                if hasattr(st, 'secrets') and 'DB_URL' in st.secrets:
+                    url = st.secrets["DB_URL"]
+                    key = st.secrets["DB_KEY"]
+            except Exception:
+                pass  # Secrets not available, that's okay for local development
+        
+        if not url or not key:
+            st.error("Database credentials not found. Please check your .env file or Streamlit secrets.")
+            st.stop()
+        
+        return create_client(url, key)
+    
+    except Exception as e:
+        st.error(f"Failed to connect to database: {str(e)}")
+        st.stop()
+
+# Initialize Supabase client
+supabase: Client = get_supabase_client()
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -34,18 +77,16 @@ st.set_page_config(
 @st.cache_data  # Streamlit decorator to cache data for better performance
 def load_data():
     """
-    Load data from the SQLite database and parse the keyword combinations.
+    Load data from Supabase and parse the keyword combinations.
     The @st.cache_data decorator ensures this only runs once per session.
     """
     try:
-        conn = sqlite3.connect('papers.db')
+        # Load all papers with search keywords
+        response = supabase.table('papers').select(
+            'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount'
+        ).not_.is_('search_keyword', 'null').neq('search_keyword', '').execute()
         
-        # Load all papers first
-        df_all_papers = pd.read_sql_query("""
-            SELECT paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount
-            FROM papers 
-            WHERE search_keyword IS NOT NULL AND search_keyword != ''
-        """, conn)
+        df_all_papers = pd.DataFrame(response.data)
         
         # Define the 6 original keywords
         original_keywords = [
@@ -80,33 +121,30 @@ def load_data():
         df_keywords = df_expanded.groupby(['search_keyword', 'year']).size().reset_index()
         df_keywords.columns = ['search_keyword', 'year', 'paper_count']
         
-        # Load country data (now using alpha-3 codes directly from database)
-        df_countries = pd.read_sql_query("""
-            SELECT firstAuthorCountryIso as alpha3_code, COUNT(*) as paper_count
-            FROM papers 
-            WHERE firstAuthorCountryIso IS NOT NULL AND firstAuthorCountryIso != ''
-            GROUP BY firstAuthorCountryIso 
-            ORDER BY paper_count DESC
-        """, conn)
+        # Load country data (using alpha-3 codes directly from database)
+        country_response = supabase.table('papers').select(
+            'firstAuthorCountryIso'
+        ).not_.is_('firstAuthorCountryIso', 'null').neq('firstAuthorCountryIso', '').execute()
+        
+        country_data = pd.DataFrame(country_response.data)
+        df_countries = country_data.groupby('firstAuthorCountryIso').size().reset_index()
+        df_countries.columns = ['alpha3_code', 'paper_count']
+        df_countries = df_countries.sort_values('paper_count', ascending=False)
         
         # Load country-year data
-        df_country_years = pd.read_sql_query("""
-            SELECT 
-                year,
-                firstAuthorCountryIso as country,
-                COUNT(*) as paper_count
-            FROM papers 
-            WHERE firstAuthorCountryIso IS NOT NULL AND firstAuthorCountryIso != '' 
-            GROUP BY year, firstAuthorCountryIso
-            ORDER BY year, firstAuthorCountryIso
-        """, conn)
+        country_year_response = supabase.table('papers').select(
+            'year, firstAuthorCountryIso'
+        ).not_.is_('firstAuthorCountryIso', 'null').neq('firstAuthorCountryIso', '').execute()
         
-        conn.close()
+        country_year_data = pd.DataFrame(country_year_response.data)
+        df_country_years = country_year_data.groupby(['year', 'firstAuthorCountryIso']).size().reset_index()
+        df_country_years.columns = ['year', 'country', 'paper_count']
+        df_country_years = df_country_years.sort_values(['year', 'country'])
         
         return df_keywords, df_countries, df_expanded, df_country_years
         
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        st.error(f"Error loading data from Supabase: {e}")
         return None, None, None, None
 
 def get_country_name(alpha3_code):
@@ -126,116 +164,171 @@ def get_actual_keywords(selected_keywords):
     """
     actual_keywords = []
     for keyword in selected_keywords:
-        if keyword == "📊 Total (All Keywords)":
+        if keyword == "Total (All Keywords)":
             actual_keywords.append("Total (All Keywords)")
         else:
             actual_keywords.append(keyword)
     return actual_keywords
 
 
-def perform_linear_regression(df_filtered, selected_keywords):
+def linear_trend_analysis(df):
     """
-    Perform linear regression analysis on the selected keywords and year range.
-    Returns results dataframe with statistics for each keyword.
+    Perform linear regression analysis for each keyword in the dataframe
+    Returns dataframe with comprehensive statistics for each keyword.
     """
     results = []
     
-    # Convert display keywords to actual DataFrame keywords
-    actual_keywords = get_actual_keywords(selected_keywords)
-    
-    for keyword in actual_keywords:
-        # Filter data for this keyword
-        keyword_data = df_filtered[df_filtered['search_keyword'] == keyword].sort_values('year')
+    for keyword in df['search_keyword'].unique():
+        keyword_data = df[df['search_keyword'] == keyword].sort_values('year')
         
-        if len(keyword_data) < 3:  # Need at least 3 points for regression
+        if len(keyword_data) < 3:  # Need at least 3 data points
             continue
-            
+        
         years = keyword_data['year'].values
-        counts = keyword_data['paper_count'].values
+        paper_counts = keyword_data['paper_count'].values
         
         # Perform linear regression
-        slope, intercept, r_value, p_value, std_err = stats.linregress(years, counts)
+        slope, intercept, r_value, p_value, std_err = stats.linregress(years, paper_counts)
+        
+        r_squared = r_value**2
+        
+        # Calculate confidence intervals (95%)
+        n = len(years)
+        t_val = stats.t.ppf(0.975, n-2)  # 95% confidence interval
+        
+        # Standard error for slope
+        s_yx = np.sqrt(np.sum((paper_counts - (slope * years + intercept))**2) / (n - 2))
+        s_xx = np.sum((years - np.mean(years))**2)
+        slope_se = s_yx / np.sqrt(s_xx)
+        
+        slope_ci_lower = slope - t_val * slope_se
+        slope_ci_upper = slope + t_val * slope_se
+        
+        # Determine significance (p < 0.05)
+        is_significant = p_value < 0.05
+        
+        # Determine trend direction and interpretation
+        if is_significant:
+            if slope > 0:
+                trend_direction = "Increasing"
+                interpretation = f"Significant upward trend: +{slope:.1f} papers/year"
+            else:
+                trend_direction = "Decreasing"
+                interpretation = f"Significant downward trend: {slope:.1f} papers/year"
+        else:
+            trend_direction = "No significant trend"
+            interpretation = "No statistically significant trend detected"
+        
+        results.append({
+            'keyword': keyword,
+            'slope': slope,
+            'slope_ci_lower': slope_ci_lower,
+            'slope_ci_upper': slope_ci_upper,
+            'intercept': intercept,
+            'r_squared': r_squared,
+            'p_value': p_value,
+            'std_error': std_err,
+            'significant_trend': is_significant,
+            'trend_direction': trend_direction,
+            'interpretation': interpretation,
+            'total_papers': paper_counts.sum(),
+            'years_analyzed': n,
+            'avg_papers_per_year': paper_counts.mean()
+        })
+    
+    return pd.DataFrame(results)
+
+
+def log_trend_analysis(df, min_papers=1):
+    """
+    Perform logarithmic regression analysis for each keyword to test exponential growth
+    Returns dataframe with exponential growth statistics.
+    """
+    results = []
+    
+    for keyword in df['search_keyword'].unique():
+        keyword_data = df[df['search_keyword'] == keyword].sort_values('year')
+        
+        # Filter out keywords with very few papers
+        if keyword_data['paper_count'].sum() < min_papers or len(keyword_data) < 3:
+            continue
+        
+        years = keyword_data['year'].values
+        paper_counts = keyword_data['paper_count'].values
+        
+        # Add small constant to handle zero counts for log transformation
+        log_counts = np.log(paper_counts + 1)
+        
+        # Perform linear regression on log-transformed data
+        slope, intercept, r_value, p_value, std_err = stats.linregress(years, log_counts)
+        
+        r_squared = r_value**2
+        
+        # Calculate annual growth rate from log regression
+        # slope in log space represents the growth rate
+        annual_growth_rate = (np.exp(slope) - 1) * 100
+        
+        # Calculate doubling time (years)
+        if slope > 0:
+            doubling_time = np.log(2) / slope
+        else:
+            doubling_time = np.inf
+        
+        # Determine significance
+        is_significant = p_value < 0.05
+        
+        # Interpretation
+        if is_significant:
+            if annual_growth_rate > 0:
+                interpretation = f"Exponential growth: {annual_growth_rate:.1f}% per year"
+            else:
+                interpretation = f"Exponential decline: {annual_growth_rate:.1f}% per year"
+        else:
+            interpretation = "No significant exponential trend"
         
         results.append({
             'keyword': keyword,
             'slope': slope,
             'intercept': intercept,
-            'r_squared': r_value**2,
+            'r_squared': r_squared,
             'p_value': p_value,
-            'std_error': std_err,
-            'significant': p_value < 0.05
-        })
-    
-    return pd.DataFrame(results)
-
-
-def perform_log_regression(df_filtered, selected_keywords):
-    """
-    Perform logarithmic regression to test for exponential growth patterns.
-    """
-    results = []
-    
-    # Convert display keywords to actual DataFrame keywords
-    actual_keywords = get_actual_keywords(selected_keywords)
-    
-    for keyword in actual_keywords:
-        # Filter data for this keyword
-        keyword_data = df_filtered[df_filtered['search_keyword'] == keyword].sort_values('year')
-        
-        if len(keyword_data) < 3:  # Need at least 3 points for regression
-            continue
-            
-        years = keyword_data['year'].values
-        counts = keyword_data['paper_count'].values
-        
-        # Add small constant to avoid log(0)
-        log_counts = np.log(counts + 1)
-        
-        # Perform linear regression on log-transformed data
-        slope, intercept, r_value, p_value, std_err = stats.linregress(years, log_counts)
-        
-        # Calculate annual growth rate from log regression
-        annual_growth_rate = (np.exp(slope) - 1) * 100
-        doubling_time = np.log(2) / slope if slope > 0 else np.inf
-        
-        results.append({
-            'keyword': keyword,
-            'slope_log': slope,
-            'intercept_log': intercept,
-            'r_squared_log': r_value**2,
-            'p_value_log': p_value,
             'annual_growth_rate_percent': annual_growth_rate,
             'doubling_time_years': doubling_time,
-            'significant_log': p_value < 0.05
+            'significant_trend': is_significant,
+            'interpretation': interpretation,
+            'total_papers': paper_counts.sum(),
+            'years_analyzed': len(years)
         })
     
     return pd.DataFrame(results)
 
 
-def compare_linear_vs_exponential(df_filtered, selected_keywords):
+def compare_linear_vs_exponential(df, min_papers=1):
     """
-    Compare linear vs exponential growth models for keywords.
+    Compare linear vs exponential growth models for each keyword
+    Returns comparison dataframe with model selection results.
     """
-    linear_results = perform_linear_regression(df_filtered, selected_keywords)
-    log_results = perform_log_regression(df_filtered, selected_keywords)
+    # Get results from both analyses
+    linear_results = linear_trend_analysis(df)
+    log_results = log_trend_analysis(df, min_papers)
     
-    if linear_results.empty or log_results.empty:
+    if linear_results.empty and log_results.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
-    # Merge results
-    comparison = pd.merge(
-        linear_results[['keyword', 'r_squared', 'p_value', 'significant']], 
-        log_results[['keyword', 'r_squared_log', 'p_value_log', 'significant_log', 
-                    'annual_growth_rate_percent', 'doubling_time_years']], 
-        on='keyword', 
-        suffixes=('_linear', '_log')
-    )
+    # Merge results for comparison
+    comparison = pd.merge(linear_results[['keyword', 'r_squared', 'p_value', 'significant_trend']], 
+                         log_results[['keyword', 'r_squared', 'p_value', 'significant_trend', 'annual_growth_rate_percent', 'doubling_time_years']], 
+                         on='keyword', 
+                         suffixes=('_linear', '_log'))
     
-    comparison['better_fit'] = np.where(
-        comparison['r_squared_log'] > comparison['r_squared'], 
-        'Exponential', 'Linear'
-    )
-    comparison['r_squared_difference'] = comparison['r_squared_log'] - comparison['r_squared']
+    # Determine which model fits better
+    comparison['better_fit'] = np.where(comparison['r_squared_log'] > comparison['r_squared_linear'], 
+                                       'Exponential', 'Linear')
+    comparison['r_squared_difference'] = comparison['r_squared_log'] - comparison['r_squared_linear']
+    
+    # Add model selection interpretation
+    comparison['model_recommendation'] = comparison.apply(lambda row: 
+        f"Use {row['better_fit']} model (ΔR² = {row['r_squared_difference']:.3f})", axis=1)
     
     return comparison, linear_results, log_results
 
@@ -246,7 +339,7 @@ def create_keyword_similarity_matrix(df_expanded, selected_keywords, year_range)
     Note: Excludes 'Total' option as it represents aggregated data.
     """
     # Filter out the Total option for similarity analysis
-    analysis_keywords = [kw for kw in selected_keywords if kw != "📊 Total (All Keywords)"]
+    analysis_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
     
     if len(analysis_keywords) < 2:
         return None  # Need at least 2 keywords for similarity analysis
@@ -316,7 +409,7 @@ def main():
     """
     
     # App title and description
-    st.title("🏙️ Urban Ecology Research Trends")
+    st.title("Urban Ecology Research Trends")
     st.markdown("""
     **Interactive Dashboard for Urban Ecology Research Analysis**
     
@@ -330,17 +423,21 @@ def main():
         df_keywords, df_countries, df_expanded, df_country_years = load_data()
     
     if df_keywords is None:
-        st.error("Failed to load data. Please check that 'papers.db' exists in the same directory.")
+        st.error("Failed to load data from Supabase. Please check the connection and table setup.")
+        st.info("💡 Common issues:")
+        st.write("- Row Level Security (RLS) may be blocking access")
+        st.write("- Table may be empty or have different column names")
+        st.write("- API key may not have sufficient permissions")
         return
     
     # ==========================================
     # SIDEBAR CONTROLS
     # ==========================================
-    st.sidebar.header("🎛️ Analysis Controls")
+    st.sidebar.header("Analysis Controls")
     
     # Get available keywords
     available_keywords = sorted(df_keywords['search_keyword'].unique())
-    keyword_options = ["📊 Total (All Keywords)"] + available_keywords
+    keyword_options = ["Total (All Keywords)"] + available_keywords
     
     # Keyword selection
     st.sidebar.subheader("Select Keywords")
@@ -383,12 +480,12 @@ def main():
     
     # Validate selections
     if not selected_keywords:
-        st.warning("⚠️ Please select at least one keyword to begin analysis.")
+        st.warning("Please select at least one keyword to begin analysis.")
         return
     
     # Filter data based on selections
     # Handle "Total" option separately
-    if "📊 Total (All Keywords)" in selected_keywords:
+    if "Total (All Keywords)" in selected_keywords:
         # If Total is selected, include all keywords for aggregation
         actual_keywords = available_keywords
         df_filtered = df_keywords[
@@ -406,7 +503,7 @@ def main():
             df_filtered = df_total
         else:
             # Include both individual keywords and total
-            individual_keywords = [kw for kw in selected_keywords if kw != "📊 Total (All Keywords)"]
+            individual_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
             df_individual = df_keywords[
                 (df_keywords['search_keyword'].isin(individual_keywords)) &
                 (df_keywords['year'] >= min_year) &
@@ -427,11 +524,11 @@ def main():
     
     # Create tabs for different analyses
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Time Series", 
-        "🔗 Keyword Relationships", 
-        "📈 Regression Analysis",
-        "🌍 Geographic Analysis",
-        "📋 Data Summary"
+        "Time Series", 
+        "Keyword Relationships", 
+        "Regression Analysis",
+        "Geographic Analysis",
+        "Data Summary"
     ])
     
     # ==========================================
@@ -486,13 +583,13 @@ def main():
         st.markdown("Analyze how often keywords appear together in research papers.")
         
         # Filter out total option for relationship analysis
-        analysis_keywords = [kw for kw in selected_keywords if kw != "📊 Total (All Keywords)"]
+        analysis_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
         
         if len(analysis_keywords) < 2:
-            if "📊 Total (All Keywords)" in selected_keywords:
-                st.info("💡 Keyword relationship analysis is not applicable when 'Total (All Keywords)' is selected, as it represents aggregated data. Please select at least 2 individual keywords to see their relationships.")
+            if "Total (All Keywords)" in selected_keywords:
+                st.info("Keyword relationship analysis is not applicable when 'Total (All Keywords)' is selected, as it represents aggregated data. Please select at least 2 individual keywords to see their relationships.")
             else:
-                st.warning("⚠️ Please select at least 2 keywords to analyze relationships.")
+                st.warning("Please select at least 2 keywords to analyze relationships.")
         else:
             # Create similarity matrix
             with st.spinner("Computing keyword similarities..."):
@@ -512,7 +609,9 @@ def main():
                     title="Keyword Co-occurrence Similarity Matrix",
                     labels=dict(x="Keyword", y="Keyword", color="Similarity"),
                     aspect="auto",
-                    color_continuous_scale="Viridis"
+                    color_continuous_scale="Viridis",
+                    zmin=0,  # Set minimum value for color scale
+                    zmax=1   # Set maximum value for color scale
                 )
             
             fig_heatmap.update_layout(
@@ -567,7 +666,7 @@ def main():
         
         # Perform regression analysis
         with st.spinner("Computing regression statistics..."):
-            comparison, linear_results, log_results = compare_linear_vs_exponential(df_filtered, selected_keywords)
+            comparison, linear_results, log_results = compare_linear_vs_exponential(df_filtered)
         
         if not comparison.empty:
             # Display comparison results
@@ -577,7 +676,7 @@ def main():
             display_comparison = comparison.copy()
             display_comparison['Annual Growth Rate (%)'] = display_comparison['annual_growth_rate_percent'].round(2)
             display_comparison['Doubling Time (years)'] = display_comparison['doubling_time_years'].round(1)
-            display_comparison['Linear R²'] = display_comparison['r_squared'].round(3)
+            display_comparison['Linear R²'] = display_comparison['r_squared_linear'].round(3)
             display_comparison['Exponential R²'] = display_comparison['r_squared_log'].round(3)
             display_comparison['Better Model'] = display_comparison['better_fit']
             
@@ -599,7 +698,7 @@ def main():
                 fig_rsquared.add_trace(go.Bar(
                     name='Linear Model',
                     x=comparison['keyword'],
-                    y=comparison['r_squared'],
+                    y=comparison['r_squared_linear'],
                     marker_color='blue',
                     opacity=0.7
                 ))
@@ -631,7 +730,7 @@ def main():
                 ]
                 
                 if not finite_growth.empty:
-                    colors = ['green' if sig else 'red' for sig in finite_growth['significant_log']]
+                    colors = ['green' if sig else 'red' for sig in finite_growth['significant_trend']]
                     
                     fig_growth = go.Figure(data=[
                         go.Bar(
@@ -678,7 +777,7 @@ def main():
                     # Generate predictions
                     year_range_extended = np.linspace(years.min(), years.max(), 100)
                     linear_pred = linear_kw['slope'] * year_range_extended + linear_kw['intercept']
-                    log_pred = np.exp(log_kw['slope_log'] * year_range_extended + log_kw['intercept_log']) - 1
+                    log_pred = np.exp(log_kw['slope'] * year_range_extended + log_kw['intercept']) - 1
                     
                     # Create comparison plot
                     fig_models = go.Figure()
@@ -697,7 +796,7 @@ def main():
                         x=year_range_extended,
                         y=log_pred,
                         mode='lines',
-                        name=f'Exponential (R²={log_kw["r_squared_log"]:.3f})',
+                        name=f'Exponential (R²={log_kw["r_squared"]:.3f})',
                         line=dict(color='red', width=2)
                     ))
                     
@@ -735,9 +834,9 @@ def main():
                         st.markdown("**Exponential Model:**")
                         st.write(f"• Growth rate: {log_kw['annual_growth_rate_percent']:.1f}%/year")
                         st.write(f"• Doubling time: {log_kw['doubling_time_years']:.1f} years")
-                        st.write(f"• R² score: {log_kw['r_squared_log']:.3f}")
-                        st.write(f"• P-value: {log_kw['p_value_log']:.2e}")
-                        st.write(f"• Significant: {'Yes' if log_kw['significant_log'] else 'No'}")
+                        st.write(f"• R² score: {log_kw['r_squared']:.3f}")
+                        st.write(f"• P-value: {log_kw['p_value']:.2e}")
+                        st.write(f"• Significant: {'Yes' if log_kw['significant_trend'] else 'No'}")
             
             # Explanation
             st.markdown("""
@@ -758,7 +857,7 @@ def main():
         st.markdown("Explore research distribution across different countries.")
         
         # Create sub-tabs for different geographic visualizations
-        geo_tab1, geo_tab2, geo_tab3 = st.tabs(["📊 Country Rankings", "🗺️ World Map", "📈 Trends by Country"])
+        geo_tab1, geo_tab2, geo_tab3 = st.tabs(["Country Rankings", "World Map", "Trends by Country"])
         
         # Filter country data by top N
         df_countries_filtered = df_countries.head(top_n_countries).copy()
@@ -935,9 +1034,12 @@ def main():
                     values='paper_count'
                 ).fillna(0)
                 
+                # Create masked version (replace 0 with NaN for better visualization)
+                heatmap_data_masked = heatmap_data.replace(0, np.nan)
+                
                 # Create heatmap
                 fig_country_heatmap = px.imshow(
-                    heatmap_data,
+                    heatmap_data_masked,
                     title=f"Research Output Over Time by Country ({min_year}-{max_year})",
                     labels=dict(x="Year", y="Country", color="Papers"),
                     aspect="auto",
