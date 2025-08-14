@@ -624,14 +624,6 @@ def main():
         help="Number of top countries to show in geographical visualizations"
     )
     
-    # Chart theme
-    chart_theme = st.sidebar.selectbox(
-        "Chart theme:",
-        ["plotly_dark", "plotly_white", "plotly"],
-        index=0,
-        help="Visual theme for all charts"
-    )
-    
     # Validate selections
     if not selected_keywords:
         st.warning("Please select at least one keyword to begin analysis.")
@@ -702,8 +694,8 @@ def main():
         )
         
         fig_time.update_layout(
-            template=chart_theme,
-            height=500,
+            template='plotly_dark',
+            height=700,
             hovermode='x unified'
         )
         
@@ -798,7 +790,7 @@ def main():
                 )
             
             fig_heatmap.update_layout(
-                template=chart_theme,
+                template='plotly_dark',
                 height=600
             )
             
@@ -809,27 +801,8 @@ def main():
             **How to read this matrix:**
             - Values closer to 1 indicate keywords that frequently appear together in papers
             - Values closer to 0 indicate keywords that rarely appear together
-            - Uses Jaccard similarity (intersection over union) to measure co-occurrence
             """)
-            
-            # Show top keyword pairs
-            if st.checkbox("Show keyword co-occurrence pairs"):
-                pairs_data = []
-                for i, kw1 in enumerate(selected_keywords):
-                    for j, kw2 in enumerate(selected_keywords):
-                        if i < j:  # Avoid duplicates
-                            similarity = similarity_matrix.loc[kw1, kw2]
-                            pairs_data.append({
-                                'Keyword 1': kw1,
-                                'Keyword 2': kw2,
-                                'Co-occurrence Score': similarity
-                            })
-                
-                if pairs_data:
-                    pairs_df = pd.DataFrame(pairs_data).sort_values('Co-occurrence Score', ascending=False)
-                    st.dataframe(pairs_df, use_container_width=True)
     
-    # ==========================================
     # ==========================================
     # TAB 3: REGRESSION ANALYSIS
     # ==========================================
@@ -837,15 +810,19 @@ def main():
         st.header("Growth Trend Analysis")
         st.markdown("Statistical analysis of research growth trends - Linear vs Exponential models.")
         
-        # Debug: Show data structure when Total is selected
-        if st.checkbox("Show debug info for regression"):
-            st.write("Debug Information:")
-            st.write(f"Selected keywords: {selected_keywords}")
-            st.write(f"Unique keywords in filtered data: {sorted(df_filtered['search_keyword'].unique())}")
-            st.write(f"Data shape: {df_filtered.shape}")
-            if not df_filtered.empty:
-                st.write("Sample data:")
-                st.write(df_filtered.head())
+        # Color scheme for regression analysis - easy to customize
+        LINEAR_COLOR = "#4ECDAF"
+        EXPONENTIAL_COLOR = "#C541CA"
+        DATA_POINTS_COLOR = '#F39C12'
+        
+        # Explanation
+        st.markdown("""
+        **Understanding the models:**
+        - **Linear Model**: Assumes constant growth (same number of papers added each year)
+        - **Exponential Model**: Assumes percentage growth (papers grow by a percentage each year)
+        - **R² Score**: Measures how well the model fits the data (1.0 = perfect fit)
+        - **Better Model**: The model with higher R² score fits the data better
+        """)
         
         # Perform regression analysis
         with st.spinner("Computing regression statistics..."):
@@ -882,7 +859,7 @@ def main():
                     name='Linear Model',
                     x=comparison['keyword'],
                     y=comparison['r_squared_linear'],
-                    marker_color='blue',
+                    marker_color=LINEAR_COLOR,
                     opacity=0.7
                 ))
                 
@@ -890,7 +867,7 @@ def main():
                     name='Exponential Model',
                     x=comparison['keyword'],
                     y=comparison['r_squared_log'],
-                    marker_color='red',
+                    marker_color=EXPONENTIAL_COLOR,
                     opacity=0.7
                 ))
                 
@@ -898,38 +875,97 @@ def main():
                     title="Model Fit Comparison (R² values)",
                     xaxis_title="Keywords",
                     yaxis_title="R² Score",
-                    template=chart_theme,
-                    height=400,
-                    barmode='group'
+                    template='plotly_dark',
+                    height=500,
+                    barmode='group',
+                    showlegend=True,
+                    legend=dict(
+                        x=0.4,
+                        y=1.22,
+                        bgcolor="rgba(0,0,0,0.5)"
+                    )
                 )
                 
                 st.plotly_chart(fig_rsquared, use_container_width=True)
             
             with col2:
-                # Growth rates for exponential model
-                finite_growth = log_results[
-                    (log_results['annual_growth_rate_percent'] > -100) & 
-                    (log_results['annual_growth_rate_percent'] < 100)
-                ]
-                
-                if not finite_growth.empty:
-                    colors = ['green' if sig else 'red' for sig in finite_growth['significant_trend']]
+                # Dynamic growth rates chart - show only the better fitting model for each keyword
+                if not comparison.empty:
+                    # Prepare data for dual-axis chart
+                    keywords = comparison['keyword'].tolist()
+                    better_models = comparison['better_fit'].tolist()
                     
-                    fig_growth = go.Figure(data=[
-                        go.Bar(
-                            x=finite_growth['keyword'],
-                            y=finite_growth['annual_growth_rate_percent'],
-                            marker_color=colors,
-                            opacity=0.7
-                        )
-                    ])
+                    # Create separate lists for linear and exponential data
+                    linear_rates = []
+                    exponential_rates = []
                     
+                    for keyword in keywords:
+                        linear_data = linear_results[linear_results['keyword'] == keyword]
+                        log_data = log_results[log_results['keyword'] == keyword]
+                        better_model = comparison[comparison['keyword'] == keyword]['better_fit'].iloc[0]
+                        
+                        if better_model == "Linear":
+                            # Show linear growth rate, hide exponential
+                            linear_rates.append(linear_data['slope'].iloc[0] if not linear_data.empty else 0)
+                            exponential_rates.append(None)  # Hide exponential bar
+                        else:
+                            # Show exponential growth rate, hide linear
+                            linear_rates.append(None)  # Hide linear bar
+                            exp_rate = log_data['annual_growth_rate_percent'].iloc[0] if not log_data.empty else 0
+                            # Cap extreme values for better visualization
+                            if -100 < exp_rate < 100:
+                                exponential_rates.append(exp_rate)
+                            else:
+                                exponential_rates.append(None)
+                    
+                    # Create figure with secondary y-axis
+                    fig_growth = go.Figure()
+                    
+                    # Add linear growth bars (turquoise, left y-axis)
+                    fig_growth.add_trace(go.Bar(
+                        name='Linear Growth (papers/year)',
+                        x=keywords,
+                        y=linear_rates,
+                        marker_color=LINEAR_COLOR,
+                        opacity=0.8,
+                        yaxis='y1'
+                    ))
+                    
+                    # Add exponential growth bars (green, right y-axis)
+                    fig_growth.add_trace(go.Bar(
+                        name='Exponential Growth (%/year)',
+                        x=keywords,
+                        y=exponential_rates,
+                        marker_color=EXPONENTIAL_COLOR,
+                        opacity=0.8,
+                        yaxis='y2'
+                    ))
+                    
+                    # Update layout with dual y-axes
                     fig_growth.update_layout(
-                        title="Annual Growth Rates (Exponential Model)<br><sub>Green=Significant, Red=Not Significant</sub>",
+                        title="Growth Rates by Best-Fit Model<br><sub>Bar color according to best fit model</sub>",
                         xaxis_title="Keywords",
-                        yaxis_title="Annual Growth Rate (%)",
-                        template=chart_theme,
-                        height=400
+                        template='plotly_dark',
+                        height=500,
+                        yaxis=dict(
+                            title="Linear Growth Rate (papers/year)",
+                            title_font=dict(color=LINEAR_COLOR),
+                            tickfont=dict(color=LINEAR_COLOR),
+                            side="left"
+                        ),
+                        yaxis2=dict(
+                            title="Exponential Growth Rate (%/year)",
+                            title_font=dict(color=EXPONENTIAL_COLOR),
+                            tickfont=dict(color=EXPONENTIAL_COLOR),
+                            overlaying="y",
+                            side="right"
+                        ),
+                        showlegend=True,
+                        legend=dict(
+                            x=0.4,
+                            y=1.22,
+                            bgcolor="rgba(0,0,0,0.5)"
+                        )
                     )
                     
                     st.plotly_chart(fig_growth, use_container_width=True)
@@ -971,7 +1007,7 @@ def main():
                         y=linear_pred,
                         mode='lines',
                         name=f'Linear (R²={linear_kw["r_squared"]:.3f})',
-                        line=dict(color='blue', width=2)
+                        line=dict(color=LINEAR_COLOR, width=2)
                     ))
                     
                     # Exponential model prediction line  
@@ -980,7 +1016,7 @@ def main():
                         y=log_pred,
                         mode='lines',
                         name=f'Exponential (R²={log_kw["r_squared"]:.3f})',
-                        line=dict(color='red', width=2)
+                        line=dict(color=EXPONENTIAL_COLOR, width=2)
                     ))
                     
                     # Actual data points (on top so they're visible)
@@ -989,46 +1025,55 @@ def main():
                         y=counts,
                         mode='markers',
                         name='Actual Data',
-                        marker=dict(size=10, color='gold', symbol='circle')
+                        marker=dict(size=10, color=DATA_POINTS_COLOR, symbol='circle')
                     ))
                     
                     fig_models.update_layout(
                         title=f"Growth Models Comparison: {selected_keyword_viz}",
                         xaxis_title="Year",
                         yaxis_title="Number of Papers",
-                        template=chart_theme,
-                        height=500,
+                        template='plotly_dark',
+                        height=600,
                         showlegend=True
                     )
                     
                     st.plotly_chart(fig_models, use_container_width=True)
                     
-                    # Show model statistics
-                    col1, col2 = st.columns(2)
+                    # Show model statistics - display only the better fitting model
+                    # Determine which model fits better for this keyword
+                    better_model = "Exponential" if log_kw['r_squared'] > linear_kw['r_squared'] else "Linear"
+                    
+                    # Create a single column for the better model
+                    col1, col2 = st.columns([2, 1])
                     
                     with col1:
-                        st.markdown("**Linear Model:**")
-                        st.write(f"• Growth rate: {linear_kw['slope']:.2f} papers/year")
-                        st.write(f"• R² score: {linear_kw['r_squared']:.3f}")
-                        st.write(f"• P-value: {linear_kw['p_value']:.2e}")
-                        st.write(f"• Significant: {'Yes' if linear_kw['significant_trend'] else 'No'}")
+                        if better_model == "Linear":
+                            st.markdown("**Growth Model: Linear**")
+                            st.write(f"• Growth rate: {linear_kw['slope']:.2f} papers/year")
+                            st.write(f"• R² score: {linear_kw['r_squared']:.3f}")
+                            st.write(f"• P-value: {linear_kw['p_value']:.2e}")
+                            st.write(f"• Significant: {'Yes' if linear_kw['significant_trend'] else 'No'}")
+                        else:
+                            st.markdown("**Growth Model: Exponential**")
+                            st.write(f"• Growth rate: {log_kw['annual_growth_rate_percent']:.1f}%/year")
+                            st.write(f"• Doubling time: {log_kw['doubling_time_years']:.1f} years")
+                            st.write(f"• R² score: {log_kw['r_squared']:.3f}")
+                            st.write(f"• P-value: {log_kw['p_value']:.2e}")
+                            st.write(f"• Significant: {'Yes' if log_kw['significant_trend'] else 'No'}")
                     
                     with col2:
-                        st.markdown("**Exponential Model:**")
-                        st.write(f"• Growth rate: {log_kw['annual_growth_rate_percent']:.1f}%/year")
-                        st.write(f"• Doubling time: {log_kw['doubling_time_years']:.1f} years")
-                        st.write(f"• R² score: {log_kw['r_squared']:.3f}")
-                        st.write(f"• P-value: {log_kw['p_value']:.2e}")
-                        st.write(f"• Significant: {'Yes' if log_kw['significant_trend'] else 'No'}")
+                        # Show comparison info
+                        r_squared_diff = abs(log_kw['r_squared'] - linear_kw['r_squared'])
+                        st.markdown("**Model Comparison:**")
+                        st.write(f"• Better model: {better_model}")
+                        st.write(f"• R² difference: {r_squared_diff:.3f}")
+                        if r_squared_diff < 0.05:
+                            st.write("• Very similar fit")
+                        elif r_squared_diff < 0.1:
+                            st.write("• Moderately better fit")
+                        else:
+                            st.write("• Much better fit")
             
-            # Explanation
-            st.markdown("""
-            **Understanding the models:**
-            - **Linear Model**: Assumes constant growth (same number of papers added each year)
-            - **Exponential Model**: Assumes percentage growth (papers grow by a percentage each year)
-            - **R² Score**: Measures how well the model fits the data (1.0 = perfect fit)
-            - **Better Model**: The model with higher R² score fits the data better
-            """)
         else:
             st.warning("Not enough data points for regression analysis with current selections.")
     
@@ -1048,19 +1093,6 @@ def main():
         
         with geo_tab1:
             st.subheader("Top Research-Producing Countries")
-            
-            # Debug: Show sample data for treemap
-            if st.checkbox("Show sample treemap data (debug)"):
-                st.write("Sample treemap data:")
-                st.write(f"DataFrame shape: {df_countries_filtered.shape}")
-                st.write(f"Columns: {list(df_countries_filtered.columns)}")
-                st.write(df_countries_filtered[['country_name', 'paper_count']].head())
-                st.write(f"Any null values in country_name: {df_countries_filtered['country_name'].isnull().sum()}")
-                st.write(f"Any null values in paper_count: {df_countries_filtered['paper_count'].isnull().sum()}")
-                st.write("Data types:")
-                st.write(df_countries_filtered[['country_name', 'paper_count']].dtypes)
-                st.write(f"Total papers sum: {df_countries_filtered['paper_count'].sum()}")
-                st.write(f"Min/Max paper counts: {df_countries_filtered['paper_count'].min()} / {df_countries_filtered['paper_count'].max()}")
             
             # Country treemap
             if not df_countries_filtered.empty and 'country_name' in df_countries_filtered.columns:
@@ -1100,20 +1132,12 @@ def main():
                         )
                         
                         fig_treemap.update_layout(
-                            template=chart_theme,
+                            template='plotly_dark',
                             height=500,
                             margin=dict(t=50, l=25, r=25, b=25)
                         )
                         
                         st.plotly_chart(fig_treemap, use_container_width=True)
-                        
-                        # Debug info
-                        if st.checkbox("Show treemap debug info"):
-                            st.write(f"Treemap created successfully with {len(treemap_data)} countries")
-                            st.write("Data passed to treemap:")
-                            # Use st.write instead of st.dataframe to avoid Arrow issues
-                            for i, row in treemap_data[['country_name', 'paper_count']].head(10).iterrows():
-                                st.write(f"- {row['country_name']}: {row['paper_count']} papers")
                     
                     except Exception as e:
                         st.error(f"Error creating treemap: {str(e)}")
@@ -1129,7 +1153,7 @@ def main():
                             color='paper_count',
                             color_continuous_scale='Viridis'
                         )
-                        fig_bar.update_layout(template=chart_theme, height=400)
+                        fig_bar.update_layout(template='plotly_dark', height=400)
                         st.plotly_chart(fig_bar, use_container_width=True)
                 else:
                     st.error("No valid data for treemap after filtering")
@@ -1154,11 +1178,6 @@ def main():
             df_countries_choropleth = df_countries.copy()
             df_countries_choropleth['country_name'] = df_countries_choropleth['alpha3_code'].apply(get_country_name)
             
-            # Debug: Show sample data
-            if st.checkbox("Show sample map data (debug)"):
-                st.write("Sample choropleth data:")
-                st.write(df_countries_choropleth[['alpha3_code', 'country_name', 'paper_count']].head(10))
-            
             # Create choropleth map using alpha-3 codes
             fig_choropleth = px.choropleth(
                 df_countries_choropleth,
@@ -1173,7 +1192,7 @@ def main():
             )
             
             fig_choropleth.update_layout(
-                template=chart_theme,
+                template='plotly_dark',
                 height=600,
                 geo=dict(
                     showframe=False,
@@ -1230,7 +1249,7 @@ def main():
                 )
                 
                 fig_country_heatmap.update_layout(
-                    template=chart_theme,
+                    template='plotly_dark',
                     height=600
                 )
                 
@@ -1256,7 +1275,7 @@ def main():
                     )
                     
                     fig_country_time.update_layout(
-                        template=chart_theme,
+                        template='plotly_dark',
                         height=500
                     )
                     
@@ -1300,7 +1319,6 @@ def main():
             st.write("**Analysis Settings:**")
             st.write(f"• Year Range: {min_year} - {max_year}")
             st.write(f"• Top Countries: {top_n_countries}")
-            st.write(f"• Chart Theme: {chart_theme}")
         
         # Dataset overview
         st.subheader("Dataset Overview")
@@ -1340,16 +1358,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# ==========================================
-# REQUIREMENTS.TXT CONTENT (for reference)
-# ==========================================
-"""
-To deploy this app, create a requirements.txt file with:
-
-streamlit
-pandas
-numpy
-plotly
-scipy
-"""
