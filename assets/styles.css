@@ -4,16 +4,35 @@
 /* SIDEBAR CUSTOMIZATION */
 /* ========================================== */
 
-
+/* Basic sidebar width with smooth transitions */
 section[data-testid="stSidebar"] {
     width: 300px !important;
+    transition: width 0.3s ease !important;
 }
 
 section[data-testid="stSidebar"] > div {
     width: 300px !important;
+    transition: width 0.3s ease !important;
 }
 
-/* Multiselect widget styling */
+/* Make collapse button always visible - simplified */
+section[data-testid="stSidebar"] button,
+section[data-testid="stSidebar"] *[role="button"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transition: all 0.2s ease !important;
+}
+
+/* Ensure collapsed state works smoothly */
+section[data-testid="stSidebar"][aria-expanded="false"] {
+    width: 0px !important;
+}
+
+section[data-testid="stSidebar"][aria-expanded="false"] > div {
+    width: 0px !important;
+}
+
+/* Keyword select menu parent*/
 div[data-testid="stMultiSelect"] {
     background-color: rgba(255, 255, 255, 0.05) !important;
     border-radius: 0.5rem !important;
@@ -21,7 +40,6 @@ div[data-testid="stMultiSelect"] {
     height: auto !important;
 }
 
-/* Add all parent containers */
 div[data-testid="stMultiSelect"] > div {
     height: auto !important;
 }
@@ -30,6 +48,7 @@ div[data-testid="stMultiSelect"] > div > div {
     height: auto !important;
 }
 
+/* Keyword display (where the selected keywords are displayd*/
 div[data-testid="stMultiSelect"] > div > div > div {
     height: auto !important;
     min-height: 320px !important;
@@ -55,6 +74,10 @@ div[data-testid="stMultiSelect"] > div > div > div {
 /* Mobile adjustments */
 @media (max-width: 768px) {
     section[data-testid="stSidebar"] {
+        width: 280px !important;
+    }
+    
+    section[data-testid="stSidebar"] > div {
         width: 280px !important;
     }
 }

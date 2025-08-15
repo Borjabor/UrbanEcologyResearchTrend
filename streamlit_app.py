@@ -65,8 +65,8 @@ supabase: Client = get_supabase_client()
 st.set_page_config(
     page_title="Urban Ecology Research Trends",
     page_icon="🏙️",
-    layout="wide",  # Use full width of the browser
-    initial_sidebar_state="expanded"  # Keep sidebar open by default
+    layout="wide",
+    initial_sidebar_state="auto"
 )
 
 # Custom CSS to control sidebar width
@@ -567,6 +567,52 @@ def create_keyword_similarity_matrix(df_expanded, selected_keywords, year_range)
             
     return similarity_matrix
 
+def display_chart_with_width_control(fig, chart_type="default", chart_id=None):
+    """
+    Display chart with width control using native Streamlit columns.
+    Only affects individual chart calls, not the entire page.
+    """
+    # Configuration variables for easy testing
+    TARGET_ASPECT_RATIO = 4/3  # Change this to test different ratios (4:3, 16:9, 3:2, etc.)
+    BASE_HEIGHT = 800  # Base height in pixels for calculations
+    
+    # Different column ratios and heights for different chart types
+    if chart_type in ["map", "choropleth"]:
+        # Maps need more width, shorter height (more rectangular)
+        col_ratios = [0.05, 0.90, 0.05]
+        final_height = int(BASE_HEIGHT * 0.8)  # 640px - good for world maps
+    elif chart_type in ["time_series"]:
+        # Time series can be moderately constrained
+        col_ratios = [0.10, 0.80, 0.10] 
+        final_height = int(BASE_HEIGHT * 0.9)  # 720px - good for temporal data
+    elif chart_type in ["heatmap"]:
+        # Heatmaps work well with moderate constraints and more square
+        col_ratios = [0.15, 0.70, 0.15]
+        final_height = int(BASE_HEIGHT * 1.1)  # 880px - more height for readability
+    else:
+        # Default: good balance for most charts
+        col_ratios = [0.125, 0.75, 0.125]
+        final_height = BASE_HEIGHT  # 800px - standard height
+    
+    # Create columns with specified ratios
+    col1, col2, col3 = st.columns(col_ratios)
+    
+    # Force height at the Plotly figure level - this should override everything
+    fig.update_layout(
+        height=final_height,
+        autosize=False,  # Disable autosize to respect our height
+        margin=dict(l=40, r=40, t=60, b=40)  # Keep margins reasonable
+    )
+    
+    with col2:
+        # Use both figure-level height AND Streamlit height parameter
+        st.plotly_chart(
+            fig, 
+            use_container_width=True,  # Keep width responsive
+            height=final_height,       # Use Streamlit's height parameter
+            config={'responsive': False, 'displayModeBar': False}
+        )
+
 # ==========================================
 # MAIN APP
 # ==========================================
@@ -725,11 +771,13 @@ def main():
         
         fig_time.update_layout(
             template='plotly_dark',
-            height=700,
-            hovermode='x unified'
+            autosize=True,
+            hovermode='x unified',
+            margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
         )
         
-        st.plotly_chart(fig_time, use_container_width=True)
+        # Display time series chart with width control
+        display_chart_with_width_control(fig_time, "time_series")
         
         # Summary statistics
         col1, col2, col3 = st.columns(3)
@@ -819,12 +867,14 @@ def main():
                     zmax=1   # Set maximum value for color scale
                 )
             
-            fig_heatmap.update_layout(
-                template='plotly_dark',
-                height=600
-            )
-            
-            st.plotly_chart(fig_heatmap, use_container_width=True)
+                fig_heatmap.update_layout(
+                    template='plotly_dark',
+                    autosize=True,  # Enable responsive sizing
+                    margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
+                )
+                
+                # Display heatmap with width control
+                display_chart_with_width_control(fig_heatmap, "heatmap")
             
             # Explanation
             st.markdown("""
@@ -906,17 +956,19 @@ def main():
                     xaxis_title="Keywords",
                     yaxis_title="R² Score",
                     template='plotly_dark',
-                    height=500,
+                    autosize=True,  # Enable responsive sizing
                     barmode='group',
                     showlegend=True,
                     legend=dict(
                         x=0.4,
                         y=1.22,
                         bgcolor="rgba(0,0,0,0.5)"
-                    )
+                    ),
+                    margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
                 )
                 
-                st.plotly_chart(fig_rsquared, use_container_width=True)
+                # Display R-squared chart with width control
+                display_chart_with_width_control(fig_rsquared, "default")
             
             with col2:
                 # Dynamic growth rates chart - show only the better fitting model for each keyword
@@ -976,7 +1028,7 @@ def main():
                         title="Growth Rates by Best-Fit Model<br><sub>Bar color according to best fit model</sub>",
                         xaxis_title="Keywords",
                         template='plotly_dark',
-                        height=500,
+                        autosize=True,  # Enable responsive sizing
                         yaxis=dict(
                             title="Linear Growth Rate (papers/year)",
                             title_font=dict(color=LINEAR_COLOR),
@@ -995,10 +1047,12 @@ def main():
                             x=0.4,
                             y=1.22,
                             bgcolor="rgba(0,0,0,0.5)"
-                        )
+                        ),
+                        margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
                     )
                     
-                    st.plotly_chart(fig_growth, use_container_width=True)
+                    # Display growth chart with width control
+                    display_chart_with_width_control(fig_growth, "default")
             
             # Model fit visualization for each keyword
             st.subheader("Growth Model Visualizations")
@@ -1063,11 +1117,13 @@ def main():
                         xaxis_title="Year",
                         yaxis_title="Number of Papers",
                         template='plotly_dark',
-                        height=600,
-                        showlegend=True
+                        autosize=True,  # Enable responsive sizing
+                        showlegend=True,
+                        margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
                     )
                     
-                    st.plotly_chart(fig_models, use_container_width=True)
+                    # Display model comparison chart with width control
+                    display_chart_with_width_control(fig_models, "default")
                     
                     # Show model statistics - display only the better fitting model
                     # Determine which model fits better for this keyword
@@ -1124,115 +1180,132 @@ def main():
         with geo_tab1:
             st.subheader("Top Research-Producing Countries")
             
-            # Country treemap
-            if not df_countries_filtered.empty and 'country_name' in df_countries_filtered.columns:
-                # Clean and prepare treemap data
-                treemap_data = df_countries_filtered[
-                    df_countries_filtered['country_name'].notna() & 
-                    (df_countries_filtered['paper_count'] > 0)
-                ].copy()
+            # Create two columns for side-by-side display
+            chart_col1, chart_col2 = st.columns(2)
+            
+            with chart_col1:
+                st.markdown("#### Country Research Output")
                 
-                # Ensure data types are correct
-                treemap_data['paper_count'] = treemap_data['paper_count'].astype(int)
-                treemap_data['country_name'] = treemap_data['country_name'].astype(str)
-                
-                # Remove any problematic characters from country names
-                treemap_data['country_name'] = treemap_data['country_name'].str.replace(r'[^\w\s-]', '', regex=True)
-                
-                # Reset index to avoid any indexing issues
-                treemap_data = treemap_data.reset_index(drop=True)
-                
-                if not treemap_data.empty and len(treemap_data) > 0:
-                    try:
-                        fig_treemap = px.treemap(
-                            treemap_data,
-                            values='paper_count',
-                            names='country_name',
-                            parents=[''] * len(treemap_data),  # Add parents
-                            title=f"Research Output by Country (Top {top_n_countries})",
-                            color='paper_count',
-                            color_continuous_scale='Viridis',
-                            width=800,
-                            height=500
-                        )
-                        
-                        fig_treemap.update_traces(
-                            textinfo="label+value",
-                            textfont_size=12
-                        )
-                        
-                        fig_treemap.update_layout(
-                            template='plotly_dark',
-                            height=500,
-                            margin=dict(t=50, l=25, r=25, b=25)
-                        )
-                        
-                        st.plotly_chart(fig_treemap, use_container_width=True)
+                # Country treemap
+                if not df_countries_filtered.empty and 'country_name' in df_countries_filtered.columns:
+                    # Clean and prepare treemap data
+                    treemap_data = df_countries_filtered[
+                        df_countries_filtered['country_name'].notna() & 
+                        (df_countries_filtered['paper_count'] > 0)
+                    ].copy()
                     
-                    except Exception as e:
-                        st.error(f"Error creating treemap: {str(e)}")
-                        st.write("Attempting alternative bar chart...")
+                    # Ensure data types are correct
+                    treemap_data['paper_count'] = treemap_data['paper_count'].astype(int)
+                    treemap_data['country_name'] = treemap_data['country_name'].astype(str)
+                    
+                    # Remove any problematic characters from country names
+                    treemap_data['country_name'] = treemap_data['country_name'].str.replace(r'[^\w\s-]', '', regex=True)
+                    
+                    # Reset index to avoid any indexing issues
+                    treemap_data = treemap_data.reset_index(drop=True)
+                    
+                    if not treemap_data.empty and len(treemap_data) > 0:
+                        try:
+                            fig_treemap = px.treemap(
+                                treemap_data,
+                                values='paper_count',
+                                names='country_name',
+                                parents=[''] * len(treemap_data),  # Add parents
+                                title=f"Research Output by Country (Top {top_n_countries})",
+                                color='paper_count',
+                                color_continuous_scale='Viridis'
+                            )
+                            
+                            fig_treemap.update_traces(
+                                textinfo="label+value",
+                                textfont_size=11  # Increased font for better readability
+                            )
+                            
+                            fig_treemap.update_layout(
+                                template='plotly_dark',
+                                autosize=True,  # Enable responsive sizing
+                                margin=dict(t=50, l=15, r=15, b=15),  # Tighter margins for columns
+                                title_font_size=15  # Increased title font
+                            )
+                            
+                            # Use a more constrained display for column layout
+                            st.plotly_chart(fig_treemap, use_container_width=True, height=500)
                         
-                        # Fallback to bar chart
-                        fig_bar = px.bar(
-                            treemap_data.head(10),
-                            x='paper_count',
-                            y='country_name',
-                            orientation='h',
-                            title=f"Top 10 Countries by Research Output",
-                            color='paper_count',
-                            color_continuous_scale='Viridis'
-                        )
-                        fig_bar.update_layout(template='plotly_dark', height=400)
-                        st.plotly_chart(fig_bar, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error creating treemap: {str(e)}")
+                            st.write("Attempting alternative bar chart...")
+                            
+                            # Fallback to bar chart
+                            fig_bar = px.bar(
+                                treemap_data.head(10),
+                                x='paper_count',
+                                y='country_name',
+                                orientation='h',
+                                title=f"Top 10 Countries by Research Output",
+                                color='paper_count',
+                                color_continuous_scale='Viridis'
+                            )
+                            fig_bar.update_layout(
+                                template='plotly_dark',
+                                autosize=True,  # Enable responsive sizing
+                                margin=dict(l=15, r=15, t=50, b=15),  # Tighter margins for columns
+                                title_font_size=15
+                            )
+                            
+                            # Display fallback bar chart
+                            st.plotly_chart(fig_bar, use_container_width=True, height=500)
+                    else:
+                        st.error("No valid data for treemap after filtering")
                 else:
-                    st.error("No valid data for treemap after filtering")
-            else:
-                st.error("Unable to create treemap - check data structure")
+                    st.error("Unable to create treemap - check data structure")
             
-            # Research trends heatmap by country over time
-            st.subheader("Research Trends by Country Over Time")
-            
-            # Filter country-year data for heatmap
-            top_countries = df_countries_filtered['alpha3_code'].tolist()
-            df_country_years_filtered = df_country_years[
-                (df_country_years['country'].isin(top_countries)) &
-                (df_country_years['year'] >= min_year) &
-                (df_country_years['year'] <= max_year)
-            ]
-            
-            if not df_country_years_filtered.empty:
-                # Create country-year heatmap
-                df_country_years_filtered = df_country_years_filtered.copy()
-                df_country_years_filtered.loc[:, 'country_name'] = df_country_years_filtered['country'].apply(get_country_name)
+            with chart_col2:
+                st.markdown("#### Research Trends Over Time")
                 
-                # Pivot for heatmap
-                heatmap_data = df_country_years_filtered.pivot(
-                    index='country_name', 
-                    columns='year', 
-                    values='paper_count'
-                ).fillna(0)
+                # Research trends heatmap by country over time
+                # Filter country-year data for heatmap
+                top_countries = df_countries_filtered['alpha3_code'].tolist()
+                df_country_years_filtered = df_country_years[
+                    (df_country_years['country'].isin(top_countries)) &
+                    (df_country_years['year'] >= min_year) &
+                    (df_country_years['year'] <= max_year)
+                ]
                 
-                # Create masked version (replace 0 with NaN for better visualization)
-                heatmap_data_masked = heatmap_data.replace(0, np.nan)
-                
-                # Create heatmap
-                fig_country_heatmap = px.imshow(
-                    heatmap_data_masked,
-                    title=f"Research Output Over Time by Country (Top {top_n_countries} between {min_year}-{max_year})",
-                    labels=dict(x="Year", y="Country", color="Papers"),
-                    aspect="auto",
-                    color_continuous_scale="Viridis"
-                )
-                
-                fig_country_heatmap.update_layout(
-                    template='plotly_dark',
-                    height=600
-                )
-                
-                st.plotly_chart(fig_country_heatmap, use_container_width=True)
-            else:
-                st.warning("No country-year data available for the selected parameters.")
+                if not df_country_years_filtered.empty:
+                    # Create country-year heatmap
+                    df_country_years_filtered = df_country_years_filtered.copy()
+                    df_country_years_filtered.loc[:, 'country_name'] = df_country_years_filtered['country'].apply(get_country_name)
+                    
+                    # Pivot for heatmap
+                    heatmap_data = df_country_years_filtered.pivot(
+                        index='country_name', 
+                        columns='year', 
+                        values='paper_count'
+                    ).fillna(0)
+                    
+                    # Create masked version (replace 0 with NaN for better visualization)
+                    heatmap_data_masked = heatmap_data.replace(0, np.nan)
+                    
+                    # Create heatmap
+                    fig_country_heatmap = px.imshow(
+                        heatmap_data_masked,
+                        title=f"Research Output Over Time by Country (Top {top_n_countries})",
+                        labels=dict(x="Year", y="Country", color="Papers"),
+                        aspect="auto",
+                        color_continuous_scale="Viridis"
+                    )
+                    
+                    fig_country_heatmap.update_layout(
+                        template='plotly_dark',
+                        autosize=True,  # Enable responsive sizing
+                        margin=dict(l=15, r=15, t=50, b=15),  # Tighter margins for columns
+                        title_font_size=15  # Increased title font
+                    )
+                    
+                    # Display country heatmap
+                    st.plotly_chart(fig_country_heatmap, use_container_width=True, height=500)
+                else:
+                    st.warning("No country-year data available for the selected parameters.")
         
         with geo_tab2:
             st.subheader("World Research Distribution")
@@ -1256,17 +1329,19 @@ def main():
             
             fig_choropleth.update_layout(
                 template='plotly_dark',
-                height=600,
+                autosize=True,  # Enable responsive sizing
                 geo=dict(
                     showframe=False,
                     showcoastlines=True,
                     showland=True,
                     landcolor='rgb(243, 243, 243)',
                     coastlinecolor='rgb(204, 204, 204)',
-                )
+                ),
+                margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
             )
             
-            st.plotly_chart(fig_choropleth, use_container_width=True)
+            # Display choropleth map with width control
+            display_chart_with_width_control(fig_choropleth, "choropleth")
             
             # Map interpretation
             st.markdown("""
