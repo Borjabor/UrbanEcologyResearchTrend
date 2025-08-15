@@ -1,8 +1,7 @@
 """
 Urban Ecology Research Trends - Interactive Dashboard
 
-This Streamlit app provides an interactive interface to explore urban ecology research trends
-based on data from OpenAlex API. Users can customize keyword selections, year ranges, and 
+This Streamlit app provides an interactive interface to explore urban ecology research trends based on data from OpenAlex API. Users can customize keyword selections, year ranges, and 
 other parameters to generate dynamic visualizations.
 
 Author: Your Name
@@ -69,6 +68,37 @@ st.set_page_config(
     layout="wide",  # Use full width of the browser
     initial_sidebar_state="expanded"  # Keep sidebar open by default
 )
+
+# Custom CSS to control sidebar width
+def load_css():
+    """Load custom CSS from external file"""
+    css_files = ['assets/styles.css', 'styles.css']  # Try assets folder first, then root
+    
+    for css_file in css_files:
+        try:
+            with open(css_file, 'r') as f:
+                css = f.read()
+            st.markdown(f'<style>{css}</style>', unsafe_allow_html=True)
+            return  # Exit if successful
+        except FileNotFoundError:
+            continue
+    
+    # Fallback inline styles if no CSS file found
+    st.markdown("""
+    <style>
+        .css-1d391kg {
+            width: 350px !important;
+        }
+        section[data-testid="stSidebar"] {
+            width: 350px !important;
+        }
+        section[data-testid="stSidebar"] > div {
+            width: 350px !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+load_css()
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -1085,7 +1115,7 @@ def main():
         st.markdown("Explore research distribution across different countries.")
         
         # Create sub-tabs for different geographic visualizations
-        geo_tab1, geo_tab2, geo_tab3 = st.tabs(["Country Rankings", "World Map", "Trends by Country"])
+        geo_tab1, geo_tab2 = st.tabs(["Country Rankings", "World Map"])
         
         # Filter country data by top N
         df_countries_filtered = df_countries.head(top_n_countries).copy()
@@ -1160,16 +1190,49 @@ def main():
             else:
                 st.error("Unable to create treemap - check data structure")
             
-            # Country statistics table
-            st.subheader("Country Statistics")
-            if not df_countries_filtered.empty:
-                country_stats = df_countries_filtered[['country_name', 'paper_count']].copy()
-                total_papers = country_stats['paper_count'].sum()
-                country_stats['Percentage'] = (country_stats['paper_count'] / total_papers * 100).round(1)
-                country_stats.columns = ['Country', 'Papers', 'Percentage (%)']
-                st.dataframe(country_stats, use_container_width=True)
+            # Research trends heatmap by country over time
+            st.subheader("Research Trends by Country Over Time")
+            
+            # Filter country-year data for heatmap
+            top_countries = df_countries_filtered['alpha3_code'].tolist()
+            df_country_years_filtered = df_country_years[
+                (df_country_years['country'].isin(top_countries)) &
+                (df_country_years['year'] >= min_year) &
+                (df_country_years['year'] <= max_year)
+            ]
+            
+            if not df_country_years_filtered.empty:
+                # Create country-year heatmap
+                df_country_years_filtered = df_country_years_filtered.copy()
+                df_country_years_filtered.loc[:, 'country_name'] = df_country_years_filtered['country'].apply(get_country_name)
+                
+                # Pivot for heatmap
+                heatmap_data = df_country_years_filtered.pivot(
+                    index='country_name', 
+                    columns='year', 
+                    values='paper_count'
+                ).fillna(0)
+                
+                # Create masked version (replace 0 with NaN for better visualization)
+                heatmap_data_masked = heatmap_data.replace(0, np.nan)
+                
+                # Create heatmap
+                fig_country_heatmap = px.imshow(
+                    heatmap_data_masked,
+                    title=f"Research Output Over Time by Country (Top {top_n_countries} between {min_year}-{max_year})",
+                    labels=dict(x="Year", y="Country", color="Papers"),
+                    aspect="auto",
+                    color_continuous_scale="Viridis"
+                )
+                
+                fig_country_heatmap.update_layout(
+                    template='plotly_dark',
+                    height=600
+                )
+                
+                st.plotly_chart(fig_country_heatmap, use_container_width=True)
             else:
-                st.error("No country data available")
+                st.warning("No country-year data available for the selected parameters.")
         
         with geo_tab2:
             st.subheader("World Research Distribution")
@@ -1208,78 +1271,10 @@ def main():
             # Map interpretation
             st.markdown("""
             **Map Interpretation:**
-            - Darker colors indicate higher research output
+            - Lighter colors indicate higher research output
             - Hover over countries to see exact paper counts
             - Gray areas represent countries with no data in our dataset
             """)
-        
-        with geo_tab3:
-            st.subheader("Research Trends by Country Over Time")
-            
-            # Filter country-year data for heatmap
-            top_countries = df_countries_filtered['alpha3_code'].tolist()
-            df_country_years_filtered = df_country_years[
-                (df_country_years['country'].isin(top_countries)) &
-                (df_country_years['year'] >= min_year) &
-                (df_country_years['year'] <= max_year)
-            ]
-            
-            if not df_country_years_filtered.empty:
-                # Create country-year heatmap
-                df_country_years_filtered = df_country_years_filtered.copy()
-                df_country_years_filtered.loc[:, 'country_name'] = df_country_years_filtered['country'].apply(get_country_name)
-                
-                # Pivot for heatmap
-                heatmap_data = df_country_years_filtered.pivot(
-                    index='country_name', 
-                    columns='year', 
-                    values='paper_count'
-                ).fillna(0)
-                
-                # Create masked version (replace 0 with NaN for better visualization)
-                heatmap_data_masked = heatmap_data.replace(0, np.nan)
-                
-                # Create heatmap
-                fig_country_heatmap = px.imshow(
-                    heatmap_data_masked,
-                    title=f"Research Output Over Time by Country ({min_year}-{max_year})",
-                    labels=dict(x="Year", y="Country", color="Papers"),
-                    aspect="auto",
-                    color_continuous_scale="Viridis"
-                )
-                
-                fig_country_heatmap.update_layout(
-                    template='plotly_dark',
-                    height=600
-                )
-                
-                st.plotly_chart(fig_country_heatmap, use_container_width=True)
-                
-                # Time series by country
-                st.subheader("Research Growth by Leading Countries")
-                
-                # Select top 5 countries for time series
-                top_5_countries = df_countries_filtered.head(5)
-                df_top_countries_time = df_country_years_filtered[
-                    df_country_years_filtered['country'].isin(top_5_countries['alpha3_code'])
-                ]
-                
-                if not df_top_countries_time.empty:
-                    fig_country_time = px.line(
-                        df_top_countries_time,
-                        x='year',
-                        y='paper_count',
-                        color='country_name',
-                        title="Research Output Over Time - Top 5 Countries",
-                        labels={'year': 'Year', 'paper_count': 'Papers Published', 'country_name': 'Country'}
-                    )
-                    
-                    fig_country_time.update_layout(
-                        template='plotly_dark',
-                        height=500
-                    )
-                    
-                    st.plotly_chart(fig_country_time, use_container_width=True)
         
         # Overall geographic statistics
         st.subheader("Geographic Summary")
