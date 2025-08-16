@@ -2,6 +2,8 @@
 
 Analyzing keyword trends, publication growth, and thematic similarity in urban ecology literature.
 
+For the interactive Dashboard, visit this [Stramlit.io link](https://urbanecologyresearchtrend.streamlit.app/)
+
 (A presentation of my findings, without code, can be seen below)
 
 ## Project Goals
