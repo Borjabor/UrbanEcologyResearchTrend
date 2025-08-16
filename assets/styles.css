@@ -1,38 +1,6 @@
 /* Urban Ecology Research Trends - Custom Styles */
 
-/* ========================================== */
-/* SIDEBAR CUSTOMIZATION */
-/* ========================================== */
-
-/* Basic sidebar width with smooth transitions */
-section[data-testid="stSidebar"] {
-    width: 300px !important;
-    transition: width 0.3s ease !important;
-}
-
-section[data-testid="stSidebar"] > div {
-    width: 300px !important;
-    transition: width 0.3s ease !important;
-}
-
-/* Make collapse button always visible - simplified */
-section[data-testid="stSidebar"] button,
-section[data-testid="stSidebar"] *[role="button"] {
-    opacity: 1 !important;
-    visibility: visible !important;
-    transition: all 0.2s ease !important;
-}
-
-/* Ensure collapsed state works smoothly */
-section[data-testid="stSidebar"][aria-expanded="false"] {
-    width: 0px !important;
-}
-
-section[data-testid="stSidebar"][aria-expanded="false"] > div {
-    width: 0px !important;
-}
-
-/* Keyword select menu parent*/
+/* Keyword box */
 div[data-testid="stMultiSelect"] {
     background-color: rgba(255, 255, 255, 0.05) !important;
     border-radius: 0.5rem !important;
@@ -48,42 +16,102 @@ div[data-testid="stMultiSelect"] > div > div {
     height: auto !important;
 }
 
-/* Keyword display (where the selected keywords are displayd*/
 div[data-testid="stMultiSelect"] > div > div > div {
     height: auto !important;
     min-height: 320px !important;
 }
 
-/* ========================================== */
-/* THEME CUSTOMIZATION */
-/* ========================================== */
-
-/* You can add custom theme colors here */
-/*
-:root {
-    --primary-color: #4ECDAF;
-    --secondary-color: #C541CA;
-    --accent-color: #F39C12;
-}
-*/
-
-/* ========================================== */
-/* RESPONSIVE DESIGN */
-/* ========================================== */
-
-/* Mobile adjustments */
-@media (max-width: 768px) {
-    section[data-testid="stSidebar"] {
-        width: 280px !important;
-    }
-    
-    section[data-testid="stSidebar"] > div {
-        width: 280px !important;
-    }
+/* Selected keyword tags/buttons */
+div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+    background-color: #15a35c !important;
+    color: #ffffff !important;
+    border: 1px solid #4ecdc4 !important;
+    border-radius: 6px !important;
+    padding: 4px 8px !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
 }
 
-/* ========================================== */
-/* CHART CUSTOMIZATIONS */
-/* ========================================== */
+/* Hover effect for tags */
+div[data-testid="stMultiSelect"] span[data-baseweb="tag"]:hover {
+    background-color: #68188d !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    transition: all 0.2s ease !important;
+}
 
-/* You can add chart-specific styles here */
+/* Close button (X) on tags */
+div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+    fill: #ffffff !important;
+    opacity: 0.8 !important;
+}
+
+div[data-testid="stMultiSelect"] span[data-baseweb="tag"]:hover svg {
+    opacity: 1 !important;
+}
+
+/* Dropdown options when selecting */
+div[data-testid="stMultiSelect"] div[role="option"] {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    color: inherit !important;
+    padding: 8px 12px !important;
+    border-radius: 4px !important;
+    margin: 2px 0 !important;
+}
+
+div[data-testid="stMultiSelect"] div[role="option"]:hover {
+    background-color: rgba(240, 85, 8, 0.2) !important;
+}
+
+div[data-testid="stMultiSelect"] div[role="option"][aria-selected="true"] {
+    background-color: rgba(240, 85, 8, 0.3) !important;
+    font-weight: 600 !important;
+}
+
+/* Sliders*/
+section[data-testid="stSidebar"] {
+    width: 300px !important;
+    transition: width 0.3s ease !important;
+}
+
+section[data-testid="stSidebar"] > div {
+    width: 300px !important;
+    transition: width 0.3s ease !important;
+}
+
+section[data-testid="stSidebar"] button,
+section[data-testid="stSidebar"] *[role="button"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transition: all 0.2s ease !important;
+}
+
+section[data-testid="stSidebar"][aria-expanded="false"] {
+    width: 0px !important;
+}
+
+section[data-testid="stSidebar"][aria-expanded="false"] > div {
+    width: 0px !important;
+}
+
+section[data-testid="stSidebar"] div[data-baseweb="slider"] {
+    padding: 12px 0 !important;
+}
+
+/* Slider track */
+section[data-testid="stSidebar"] div[data-baseweb="slider"] > div > div {
+    background: linear-gradient(to right, #4ecdc4 0%, #26de81 100%) !important;
+    height: 6px !important;
+    border-radius: 4px !important;
+    position: relative !important;
+}
+
+/* Slider knobs */
+section[data-testid="stSidebar"] div[data-baseweb="slider"] div[role="slider"] {
+    background-color: #68188d !important;
+    border: 2px solid #ffffff !important;
+    width: 24px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+}

@@ -18,12 +18,7 @@ import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Load environment variables for local development
 load_dotenv()
-
-# ==========================================
-# SUPABASE CONNECTION SETUP
-# ==========================================
 
 def get_supabase_client():
     """
@@ -56,12 +51,9 @@ def get_supabase_client():
         st.error(f"Failed to connect to database: {str(e)}")
         st.stop()
 
-# Initialize Supabase client
+
 supabase: Client = get_supabase_client()
 
-# ==========================================
-# PAGE CONFIGURATION
-# ==========================================
 st.set_page_config(
     page_title="Urban Ecology Research Trends",
     page_icon="🏙️",
@@ -69,7 +61,7 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# Custom CSS to control sidebar width
+
 def load_css():
     """Load custom CSS from external file"""
     css_files = ['assets/styles.css', 'styles.css']  # Try assets folder first, then root
@@ -567,31 +559,35 @@ def create_keyword_similarity_matrix(df_expanded, selected_keywords, year_range)
             
     return similarity_matrix
 
-def display_chart_with_width_control(fig, chart_type="default", chart_id=None):
+def display_chart_control(fig, chart_type="default"):
     """
-    Display chart with width control using native Streamlit columns.
-    Only affects individual chart calls, not the entire page.
+    Display chart with responsive width control using native Streamlit columns.
+    Uses very small margins that become negligible on mobile devices.
     """
     # Configuration variables for easy testing
     TARGET_ASPECT_RATIO = 4/3  # Change this to test different ratios (4:3, 16:9, 3:2, etc.)
     BASE_HEIGHT = 800  # Base height in pixels for calculations
     
-    # Different column ratios and heights for different chart types
+    # Use very small column ratios that will appear nearly full-width on mobile
+    # while maintaining some centering on large desktop screens
     if chart_type in ["map", "choropleth"]:
-        # Maps need more width, shorter height (more rectangular)
-        col_ratios = [0.05, 0.90, 0.05]
+        # Maps: almost full width
+        col_ratios = [0.05, 0.90, 0.05]  # Only 2% total margins
         final_height = int(BASE_HEIGHT * 0.8)  # 640px - good for world maps
     elif chart_type in ["time_series"]:
-        # Time series can be moderately constrained
-        col_ratios = [0.10, 0.80, 0.10] 
-        final_height = int(BASE_HEIGHT * 0.9)  # 720px - good for temporal data
+        # Time series: minimal margins
+        col_ratios = [0.10, 0.80, 0.10]  # Only 4% total margins
+        final_height = int(BASE_HEIGHT * 1.05)  # 720px - good for temporal data
     elif chart_type in ["heatmap"]:
-        # Heatmaps work well with moderate constraints and more square
-        col_ratios = [0.15, 0.70, 0.15]
+        # Heatmaps: small margins
+        col_ratios = [0.15, 0.70, 0.15]  # Only 6% total margins
         final_height = int(BASE_HEIGHT * 1.1)  # 880px - more height for readability
+    elif chart_type in ["top_countries"]:
+        col_ratios = [0.05, 0.90, 0.05]
+        final_height = int(BASE_HEIGHT * 0.85)
     else:
-        # Default: good balance for most charts
-        col_ratios = [0.125, 0.75, 0.125]
+        # Default: very small margins (will be almost full-width on mobile)
+        col_ratios = [0.125, 0.75, 0.125]  # Only 5% total margins
         final_height = BASE_HEIGHT  # 800px - standard height
     
     # Create columns with specified ratios
@@ -613,6 +609,7 @@ def display_chart_with_width_control(fig, chart_type="default", chart_id=None):
             config={'responsive': False, 'displayModeBar': False}
         )
 
+
 # ==========================================
 # MAIN APP
 # ==========================================
@@ -622,7 +619,6 @@ def main():
     Main function that creates the Streamlit app interface and handles all interactions.
     """
     
-    # App title and description
     st.title("Urban Ecology Research Trends")
     
     st.markdown("""
@@ -633,7 +629,6 @@ def main():
     and modifying various parameters.
     """)
     
-    # Load data
     df_keywords, df_countries, df_expanded, df_country_years, total_unique_papers, df_totals = load_data()
     
     if df_keywords is None:
@@ -644,7 +639,6 @@ def main():
         st.write("- API key may not have sufficient permissions")
         return
     
-    # Show data loaded confirmation with dismiss functionality
     if 'show_loading_messages' not in st.session_state:
         st.session_state.show_loading_messages = True
     
@@ -660,38 +654,33 @@ def main():
                 st.session_state.show_loading_messages = False
                 st.rerun()
     
+    
     # ==========================================
     # SIDEBAR CONTROLS
     # ==========================================
     st.sidebar.header("Analysis Controls")
     
-    # Get available keywords
     available_keywords = sorted(df_keywords['search_keyword'].unique())
     keyword_options = ["Total (All Keywords)"] + available_keywords
     
-    # Keyword selection
     st.sidebar.subheader("Select Keywords")
     selected_keywords = st.sidebar.multiselect(
         "Choose keywords to analyze:",
         keyword_options,
-        default=available_keywords,  # Select all individual keywords by default
+        default=available_keywords,
         help="Select one or more keywords to include in the analysis. 'Total' shows aggregated data across all keywords."
     )
     
-    # Year range selection
     st.sidebar.subheader("Year Range")
     min_year, max_year = st.sidebar.slider(
         "Select year range:",
         min_value=1970,
         max_value=2023,
-        value=(1970, 2023),  # Default to full range
+        value=(1970, 2023),
         help="Adjust the time period for analysis"
     )
     
-    # Additional parameters
-    st.sidebar.subheader("Display Options")
-    
-    # Number of countries to show in geographical analysis
+    st.sidebar.subheader("Country Selection")
     top_n_countries = st.sidebar.slider(
         "Top N countries to display:",
         min_value=5,
@@ -700,26 +689,20 @@ def main():
         help="Number of top countries to show in geographical visualizations"
     )
     
-    # Validate selections
     if not selected_keywords:
         st.warning("Please select at least one keyword to begin analysis.")
         return
     
-    # Filter data based on selections
-    # Handle "Total" option separately
     if "Total (All Keywords)" in selected_keywords:
-        # Use the CORRECT df_totals for Total line, not the incorrectly calculated one
         df_totals_filtered = df_totals[
             (df_totals['year'] >= min_year) & 
             (df_totals['year'] <= max_year)
         ].copy()
-        df_totals_filtered['search_keyword'] = 'Total (All Keywords)'  # Rename to match app expectations
+        df_totals_filtered['search_keyword'] = 'Total (All Keywords)'
         
-        # If only Total is selected, use just the correct total data
         if len(selected_keywords) == 1:
             df_filtered = df_totals_filtered
         else:
-            # Include both individual keywords and correct total
             individual_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
             df_individual = df_keywords[
                 (df_keywords['search_keyword'].isin(individual_keywords)) &
@@ -728,7 +711,6 @@ def main():
             ]
             df_filtered = pd.concat([df_individual, df_totals_filtered], ignore_index=True)
     else:
-        # Regular filtering for individual keywords only
         df_filtered = df_keywords[
             (df_keywords['search_keyword'].isin(selected_keywords)) &
             (df_keywords['year'] >= min_year) &
@@ -739,13 +721,11 @@ def main():
     # MAIN CONTENT TABS
     # ==========================================
     
-    # Create tabs for different analyses
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "Time Series", 
         "Keyword Relationships", 
         "Regression Analysis",
-        "Geographic Analysis",
-        "Data Summary"
+        "Geographic Analysis"
     ])
     
     # ==========================================
@@ -755,7 +735,6 @@ def main():
         st.header("Time Series Analysis")
         st.markdown("Explore how research volume has changed over time for different keywords.")
         
-        # Create time series plot
         fig_time = px.line(
             df_filtered, 
             x='year', 
@@ -773,27 +752,21 @@ def main():
             template='plotly_dark',
             autosize=True,
             hovermode='x unified',
-            margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
+            margin=dict(l=20, r=20, t=50, b=20)
         )
         
-        # Display time series chart with width control
-        display_chart_with_width_control(fig_time, "time_series")
+        display_chart_control(fig_time, "time_series")
         
-        # Summary statistics
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Calculate total papers correctly using df_totals
             if "Total (All Keywords)" in selected_keywords:
-                # Use the correct totals from df_totals filtered by year range
                 df_totals_filtered = df_totals[
                     (df_totals['year'] >= min_year) & 
                     (df_totals['year'] <= max_year)
                 ]
                 total_papers = df_totals_filtered['paper_count'].sum()
             else:
-                # For individual keywords only, we need to calculate unique papers
-                # Get the years that have the selected keywords
                 years_with_keywords = df_filtered['year'].unique()
                 df_totals_for_years = df_totals[
                     (df_totals['year'].isin(years_with_keywords)) &
@@ -805,7 +778,6 @@ def main():
             st.metric("Total Papers", f"{total_papers:,}")
         
         with col2:
-            # Calculate average per year correctly using df_totals
             if "Total (All Keywords)" in selected_keywords:
                 df_totals_filtered = df_totals[
                     (df_totals['year'] >= min_year) & 
@@ -813,7 +785,6 @@ def main():
                 ]
                 avg_per_year = df_totals_filtered['paper_count'].mean()
             else:
-                # For individual keywords, use the same years as above
                 years_with_keywords = df_filtered['year'].unique()
                 df_totals_for_years = df_totals[
                     (df_totals['year'].isin(years_with_keywords)) &
@@ -835,7 +806,6 @@ def main():
         st.header("Keyword Relationship Analysis")
         st.markdown("Analyze how often keywords appear together in research papers.")
         
-        # Filter out total option for relationship analysis
         analysis_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
         
         if len(analysis_keywords) < 2:
@@ -844,43 +814,39 @@ def main():
             else:
                 st.warning("Please select at least 2 keywords to analyze relationships.")
         else:
-            # Create similarity matrix
             with st.spinner("Computing keyword similarities..."):
                 similarity_matrix = create_keyword_similarity_matrix(
                     df_expanded, selected_keywords, (min_year, max_year)
                 )
             
             if similarity_matrix is not None:
-                # Apply mask to hide upper triangle (since matrix is symmetric)
                 mask = np.triu(np.ones_like(similarity_matrix, dtype=bool), k=1)
                 similarity_matrix_masked = similarity_matrix.copy()
                 similarity_matrix_masked[mask] = np.nan
                 
-                # Create heatmap with masked data
                 fig_heatmap = px.imshow(
                     similarity_matrix_masked,
                     title="Keyword Co-occurrence Similarity Matrix",
                     labels=dict(x="Keyword", y="Keyword", color="Similarity"),
                     aspect="auto",
                     color_continuous_scale="Viridis",
-                    zmin=0,  # Set minimum value for color scale
-                    zmax=1   # Set maximum value for color scale
+                    zmin=0,
+                    zmax=1
                 )
             
                 fig_heatmap.update_layout(
                     template='plotly_dark',
-                    autosize=True,  # Enable responsive sizing
-                    margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
+                    autosize=True,
+                    margin=dict(l=20, r=20, t=50, b=20)
                 )
                 
-                # Display heatmap with width control
-                display_chart_with_width_control(fig_heatmap, "heatmap")
+                display_chart_control(fig_heatmap, "heatmap")
             
             # Explanation
             st.markdown("""
             **How to read this matrix:**
-            - Values closer to 1 indicate keywords that frequently appear together in papers
             - Values closer to 0 indicate keywords that rarely appear together
+            - Values closer to 1 indicate keywords that frequently appear together in papers
             """)
     
     # ==========================================
@@ -890,12 +856,10 @@ def main():
         st.header("Growth Trend Analysis")
         st.markdown("Statistical analysis of research growth trends - Linear vs Exponential models.")
         
-        # Color scheme for regression analysis - easy to customize
         LINEAR_COLOR = "#4ECDAF"
         EXPONENTIAL_COLOR = "#C541CA"
         DATA_POINTS_COLOR = '#F39C12'
         
-        # Explanation
         st.markdown("""
         **Understanding the models:**
         - **Linear Model**: Assumes constant growth (same number of papers added each year)
@@ -904,15 +868,12 @@ def main():
         - **Better Model**: The model with higher R² score fits the data better
         """)
         
-        # Perform regression analysis
         with st.spinner("Computing regression statistics..."):
             comparison, linear_results, log_results = compare_linear_vs_exponential(df_filtered)
         
         if not comparison.empty:
-            # Display comparison results
             st.subheader("Model Comparison: Linear vs Exponential")
             
-            # Format the results for display
             display_comparison = comparison.copy()
             display_comparison['Annual Growth Rate (%)'] = display_comparison['annual_growth_rate_percent'].round(2)
             display_comparison['Doubling Time (years)'] = display_comparison['doubling_time_years'].round(1)
@@ -920,7 +881,6 @@ def main():
             display_comparison['Exponential R²'] = display_comparison['r_squared_log'].round(3)
             display_comparison['Better Model'] = display_comparison['better_fit']
             
-            # Select columns for display
             display_cols = ['keyword', 'Linear R²', 'Exponential R²', 'Better Model', 
                           'Annual Growth Rate (%)', 'Doubling Time (years)']
             st.dataframe(
@@ -928,11 +888,9 @@ def main():
                 use_container_width=True
             )
             
-            # Create visualization comparing models
             col1, col2 = st.columns(2)
             
             with col1:
-                # R-squared comparison
                 fig_rsquared = go.Figure()
                 
                 fig_rsquared.add_trace(go.Bar(
@@ -956,7 +914,7 @@ def main():
                     xaxis_title="Keywords",
                     yaxis_title="R² Score",
                     template='plotly_dark',
-                    autosize=True,  # Enable responsive sizing
+                    autosize=True,
                     barmode='group',
                     showlegend=True,
                     legend=dict(
@@ -964,20 +922,16 @@ def main():
                         y=1.22,
                         bgcolor="rgba(0,0,0,0.5)"
                     ),
-                    margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
+                    margin=dict(l=20, r=20, t=50, b=20)
                 )
                 
-                # Display R-squared chart with width control
-                display_chart_with_width_control(fig_rsquared, "default")
+                display_chart_control(fig_rsquared, "default")
             
             with col2:
-                # Dynamic growth rates chart - show only the better fitting model for each keyword
                 if not comparison.empty:
-                    # Prepare data for dual-axis chart
                     keywords = comparison['keyword'].tolist()
                     better_models = comparison['better_fit'].tolist()
                     
-                    # Create separate lists for linear and exponential data
                     linear_rates = []
                     exponential_rates = []
                     
@@ -987,23 +941,19 @@ def main():
                         better_model = comparison[comparison['keyword'] == keyword]['better_fit'].iloc[0]
                         
                         if better_model == "Linear":
-                            # Show linear growth rate, hide exponential
                             linear_rates.append(linear_data['slope'].iloc[0] if not linear_data.empty else 0)
-                            exponential_rates.append(None)  # Hide exponential bar
+                            exponential_rates.append(None)
                         else:
-                            # Show exponential growth rate, hide linear
-                            linear_rates.append(None)  # Hide linear bar
+                            linear_rates.append(None)
                             exp_rate = log_data['annual_growth_rate_percent'].iloc[0] if not log_data.empty else 0
-                            # Cap extreme values for better visualization
+                            
                             if -100 < exp_rate < 100:
                                 exponential_rates.append(exp_rate)
                             else:
                                 exponential_rates.append(None)
                     
-                    # Create figure with secondary y-axis
                     fig_growth = go.Figure()
                     
-                    # Add linear growth bars (turquoise, left y-axis)
                     fig_growth.add_trace(go.Bar(
                         name='Linear Growth (papers/year)',
                         x=keywords,
@@ -1013,7 +963,6 @@ def main():
                         yaxis='y1'
                     ))
                     
-                    # Add exponential growth bars (green, right y-axis)
                     fig_growth.add_trace(go.Bar(
                         name='Exponential Growth (%/year)',
                         x=keywords,
@@ -1023,24 +972,30 @@ def main():
                         yaxis='y2'
                     ))
                     
-                    # Update layout with dual y-axes
                     fig_growth.update_layout(
                         title="Growth Rates by Best-Fit Model<br><sub>Bar color according to best fit model</sub>",
                         xaxis_title="Keywords",
                         template='plotly_dark',
-                        autosize=True,  # Enable responsive sizing
+                        autosize=True,
                         yaxis=dict(
                             title="Linear Growth Rate (papers/year)",
                             title_font=dict(color=LINEAR_COLOR),
                             tickfont=dict(color=LINEAR_COLOR),
-                            side="left"
+                            side="left",
+                            showgrid=True,
+                            gridwidth=1,
+                            gridcolor='rgba(92, 232, 237, 0.3)',
+                            griddash='dot'
                         ),
                         yaxis2=dict(
                             title="Exponential Growth Rate (%/year)",
                             title_font=dict(color=EXPONENTIAL_COLOR),
                             tickfont=dict(color=EXPONENTIAL_COLOR),
                             overlaying="y",
-                            side="right"
+                            side="right",
+                            showgrid=True,
+                            gridwidth=1,
+                            gridcolor='rgba(237, 92, 229, 0.3)',
                         ),
                         showlegend=True,
                         legend=dict(
@@ -1048,16 +1003,13 @@ def main():
                             y=1.22,
                             bgcolor="rgba(0,0,0,0.5)"
                         ),
-                        margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
+                        margin=dict(l=20, r=20, t=50, b=20)
                     )
                     
-                    # Display growth chart with width control
-                    display_chart_with_width_control(fig_growth, "default")
+                    display_chart_control(fig_growth, "default")
             
-            # Model fit visualization for each keyword
             st.subheader("Growth Model Visualizations")
             
-            # Get actual keywords available in the DataFrame after filtering
             available_viz_keywords = sorted(df_filtered['search_keyword'].unique())
             
             selected_keyword_viz = st.selectbox(
@@ -1073,19 +1025,15 @@ def main():
                     years = keyword_data['year'].values
                     counts = keyword_data['paper_count'].values
                     
-                    # Get regression results for this keyword
                     linear_kw = linear_results[linear_results['keyword'] == selected_keyword_viz].iloc[0]
                     log_kw = log_results[log_results['keyword'] == selected_keyword_viz].iloc[0]
                     
-                    # Generate predictions
                     year_range_extended = np.linspace(years.min(), years.max(), 100)
                     linear_pred = linear_kw['slope'] * year_range_extended + linear_kw['intercept']
                     log_pred = np.exp(log_kw['slope'] * year_range_extended + log_kw['intercept']) - 1
                     
-                    # Create comparison plot
                     fig_models = go.Figure()
                     
-                    # Linear model prediction line
                     fig_models.add_trace(go.Scatter(
                         x=year_range_extended,
                         y=linear_pred,
@@ -1094,7 +1042,6 @@ def main():
                         line=dict(color=LINEAR_COLOR, width=2)
                     ))
                     
-                    # Exponential model prediction line  
                     fig_models.add_trace(go.Scatter(
                         x=year_range_extended,
                         y=log_pred,
@@ -1103,7 +1050,6 @@ def main():
                         line=dict(color=EXPONENTIAL_COLOR, width=2)
                     ))
                     
-                    # Actual data points (on top so they're visible)
                     fig_models.add_trace(go.Scatter(
                         x=years,
                         y=counts,
@@ -1117,19 +1063,15 @@ def main():
                         xaxis_title="Year",
                         yaxis_title="Number of Papers",
                         template='plotly_dark',
-                        autosize=True,  # Enable responsive sizing
+                        autosize=True,
                         showlegend=True,
-                        margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
+                        margin=dict(l=20, r=20, t=50, b=20)
                     )
                     
-                    # Display model comparison chart with width control
-                    display_chart_with_width_control(fig_models, "default")
+                    display_chart_control(fig_models, "time_series")
                     
-                    # Show model statistics - display only the better fitting model
-                    # Determine which model fits better for this keyword
                     better_model = "Exponential" if log_kw['r_squared'] > linear_kw['r_squared'] else "Linear"
                     
-                    # Create a single column for the better model
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
@@ -1148,7 +1090,6 @@ def main():
                             st.write(f"• Significant: {'Yes' if log_kw['significant_trend'] else 'No'}")
                     
                     with col2:
-                        # Show comparison info
                         r_squared_diff = abs(log_kw['r_squared'] - linear_kw['r_squared'])
                         st.markdown("**Model Comparison:**")
                         st.write(f"• Better model: {better_model}")
@@ -1170,38 +1111,30 @@ def main():
         st.header("Geographic Distribution")
         st.markdown("Explore research distribution across different countries.")
         
-        # Create sub-tabs for different geographic visualizations
         geo_tab1, geo_tab2 = st.tabs(["Country Rankings", "World Map"])
         
-        # Filter country data by top N
         df_countries_filtered = df_countries.head(top_n_countries).copy()
         df_countries_filtered.loc[:, 'country_name'] = df_countries_filtered['alpha3_code'].apply(get_country_name)
         
         with geo_tab1:
             st.subheader("Top Research-Producing Countries")
             
-            # Create two columns for side-by-side display
             chart_col1, chart_col2 = st.columns(2)
             
             with chart_col1:
                 st.markdown("#### Country Research Output")
                 
-                # Country treemap
                 if not df_countries_filtered.empty and 'country_name' in df_countries_filtered.columns:
-                    # Clean and prepare treemap data
                     treemap_data = df_countries_filtered[
                         df_countries_filtered['country_name'].notna() & 
                         (df_countries_filtered['paper_count'] > 0)
                     ].copy()
                     
-                    # Ensure data types are correct
                     treemap_data['paper_count'] = treemap_data['paper_count'].astype(int)
                     treemap_data['country_name'] = treemap_data['country_name'].astype(str)
                     
-                    # Remove any problematic characters from country names
                     treemap_data['country_name'] = treemap_data['country_name'].str.replace(r'[^\w\s-]', '', regex=True)
                     
-                    # Reset index to avoid any indexing issues
                     treemap_data = treemap_data.reset_index(drop=True)
                     
                     if not treemap_data.empty and len(treemap_data) > 0:
@@ -1210,7 +1143,7 @@ def main():
                                 treemap_data,
                                 values='paper_count',
                                 names='country_name',
-                                parents=[''] * len(treemap_data),  # Add parents
+                                parents=[''] * len(treemap_data),
                                 title=f"Research Output by Country (Top {top_n_countries})",
                                 color='paper_count',
                                 color_continuous_scale='Viridis'
@@ -1218,24 +1151,22 @@ def main():
                             
                             fig_treemap.update_traces(
                                 textinfo="label+value",
-                                textfont_size=11  # Increased font for better readability
+                                textfont_size=11
                             )
                             
                             fig_treemap.update_layout(
                                 template='plotly_dark',
-                                autosize=True,  # Enable responsive sizing
-                                margin=dict(t=50, l=15, r=15, b=15),  # Tighter margins for columns
-                                title_font_size=15  # Increased title font
+                                autosize=True,
+                                margin=dict(t=50, l=15, r=15, b=15),
+                                title_font_size=15
                             )
                             
-                            # Use a more constrained display for column layout
-                            st.plotly_chart(fig_treemap, use_container_width=True, height=500)
+                            display_chart_control(fig_treemap, "top_countries")
                         
                         except Exception as e:
                             st.error(f"Error creating treemap: {str(e)}")
                             st.write("Attempting alternative bar chart...")
                             
-                            # Fallback to bar chart
                             fig_bar = px.bar(
                                 treemap_data.head(10),
                                 x='paper_count',
@@ -1247,12 +1178,11 @@ def main():
                             )
                             fig_bar.update_layout(
                                 template='plotly_dark',
-                                autosize=True,  # Enable responsive sizing
-                                margin=dict(l=15, r=15, t=50, b=15),  # Tighter margins for columns
+                                autosize=True,
+                                margin=dict(l=15, r=15, t=50, b=15),
                                 title_font_size=15
                             )
                             
-                            # Display fallback bar chart
                             st.plotly_chart(fig_bar, use_container_width=True, height=500)
                     else:
                         st.error("No valid data for treemap after filtering")
@@ -1262,8 +1192,6 @@ def main():
             with chart_col2:
                 st.markdown("#### Research Trends Over Time")
                 
-                # Research trends heatmap by country over time
-                # Filter country-year data for heatmap
                 top_countries = df_countries_filtered['alpha3_code'].tolist()
                 df_country_years_filtered = df_country_years[
                     (df_country_years['country'].isin(top_countries)) &
@@ -1272,21 +1200,17 @@ def main():
                 ]
                 
                 if not df_country_years_filtered.empty:
-                    # Create country-year heatmap
                     df_country_years_filtered = df_country_years_filtered.copy()
                     df_country_years_filtered.loc[:, 'country_name'] = df_country_years_filtered['country'].apply(get_country_name)
                     
-                    # Pivot for heatmap
                     heatmap_data = df_country_years_filtered.pivot(
                         index='country_name', 
                         columns='year', 
                         values='paper_count'
                     ).fillna(0)
                     
-                    # Create masked version (replace 0 with NaN for better visualization)
                     heatmap_data_masked = heatmap_data.replace(0, np.nan)
                     
-                    # Create heatmap
                     fig_country_heatmap = px.imshow(
                         heatmap_data_masked,
                         title=f"Research Output Over Time by Country (Top {top_n_countries})",
@@ -1297,24 +1221,22 @@ def main():
                     
                     fig_country_heatmap.update_layout(
                         template='plotly_dark',
-                        autosize=True,  # Enable responsive sizing
-                        margin=dict(l=15, r=15, t=50, b=15),  # Tighter margins for columns
-                        title_font_size=15  # Increased title font
+                        autosize=True,
+                        margin=dict(l=15, r=15, t=50, b=15),
+                        title_font_size=15
                     )
                     
-                    # Display country heatmap
-                    st.plotly_chart(fig_country_heatmap, use_container_width=True, height=500)
+                    display_chart_control(fig_country_heatmap, "top_countries")
+                    
                 else:
                     st.warning("No country-year data available for the selected parameters.")
         
         with geo_tab2:
             st.subheader("World Research Distribution")
             
-            # Prepare data for choropleth map (database now contains alpha-3 codes)
             df_countries_choropleth = df_countries.copy()
             df_countries_choropleth['country_name'] = df_countries_choropleth['alpha3_code'].apply(get_country_name)
             
-            # Create choropleth map using alpha-3 codes
             fig_choropleth = px.choropleth(
                 df_countries_choropleth,
                 locations='alpha3_code',
@@ -1329,7 +1251,7 @@ def main():
             
             fig_choropleth.update_layout(
                 template='plotly_dark',
-                autosize=True,  # Enable responsive sizing
+                autosize=True,
                 geo=dict(
                     showframe=False,
                     showcoastlines=True,
@@ -1337,13 +1259,11 @@ def main():
                     landcolor='rgb(243, 243, 243)',
                     coastlinecolor='rgb(204, 204, 204)',
                 ),
-                margin=dict(l=20, r=20, t=50, b=20)  # Responsive margins
+                margin=dict(l=20, r=20, t=50, b=20)
             )
             
-            # Display choropleth map with width control
-            display_chart_with_width_control(fig_choropleth, "choropleth")
+            display_chart_control(fig_choropleth, "choropleth")
             
-            # Map interpretation
             st.markdown("""
             **Map Interpretation:**
             - Lighter colors indicate higher research output
@@ -1351,7 +1271,6 @@ def main():
             - Gray areas represent countries with no data in our dataset
             """)
         
-        # Overall geographic statistics
         st.subheader("Geographic Summary")
         col1, col2, col3, col4 = st.columns(4)
         
@@ -1369,62 +1288,6 @@ def main():
             avg_papers_country = df_countries_filtered['paper_count'].mean()
             st.metric("Avg Papers/Country", f"{avg_papers_country:.0f}")
     
-    # ==========================================
-    # TAB 5: DATA SUMMARY
-    # ==========================================
-    with tab5:
-        st.header("Data Summary")
-        st.markdown("Overview of the dataset and current analysis parameters.")
-        
-        # Analysis parameters
-        st.subheader("Current Analysis Parameters")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Keywords Selected:**")
-            for kw in selected_keywords:
-                st.write(f"• {kw}")
-        
-        with col2:
-            st.write("**Analysis Settings:**")
-            st.write(f"• Year Range: {min_year} - {max_year}")
-            st.write(f"• Top Countries: {top_n_countries}")
-        
-        # Dataset overview
-        st.subheader("Dataset Overview")
-        
-        # Show sample data
-        if st.checkbox("Show sample data"):
-            st.write("**Sample keyword data:**")
-            st.dataframe(df_filtered.head(10), use_container_width=True)
-        
-        # Dataset statistics
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Total Unique Papers", f"{total_unique_papers:,}")
-        
-        with col2:
-            total_countries = len(df_countries)
-            st.metric("Countries Represented", total_countries)
-        
-        with col3:
-            year_coverage = 2023 - 1970 + 1
-            st.metric("Years Covered", year_coverage)
-        
-        # Data quality metrics
-        st.subheader("Data Quality")
-        expanded_instances = len(df_expanded)
-        papers_with_countries = df_countries['paper_count'].sum()
-        
-        st.write(f"• Unique papers in dataset: {total_unique_papers:,}")
-        st.write(f"• Keyword instances (papers × keywords): {expanded_instances:,}")
-        st.write(f"• Papers with country data: {papers_with_countries:,}")
-        st.write(f"• Data completeness: Good coverage across time period")
-
-# ==========================================
-# APP ENTRY POINT
-# ==========================================
 
 if __name__ == "__main__":
     main()
