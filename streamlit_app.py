@@ -28,18 +28,16 @@ def get_supabase_client():
         url = None
         key = None
         
-        # Try environment variables first (for local development)
         url = os.getenv("DB_URL")
         key = os.getenv("DB_KEY")
         
-        # If not found, try Streamlit secrets (for deployment)
         if not url or not key:
             try:
                 if hasattr(st, 'secrets') and 'DB_URL' in st.secrets:
                     url = st.secrets["DB_URL"]
                     key = st.secrets["DB_KEY"]
             except Exception:
-                pass  # Secrets not available, that's okay for local development
+                pass
         
         if not url or not key:
             st.error("Database credentials not found. Please check your .env file or Streamlit secrets.")
@@ -64,14 +62,14 @@ st.set_page_config(
 
 def load_css():
     """Load custom CSS from external file"""
-    css_files = ['assets/styles.css', 'styles.css']  # Try assets folder first, then root
+    css_files = ['assets/styles.css', 'styles.css']
     
     for css_file in css_files:
         try:
             with open(css_file, 'r') as f:
                 css = f.read()
             st.markdown(f'<style>{css}</style>', unsafe_allow_html=True)
-            return  # Exit if successful
+            return
         except FileNotFoundError:
             continue
     
@@ -101,7 +99,6 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
     all_papers = []
     page = 0
     
-    # Initialize progress bar if requested
     if show_progress:
         if progress_placeholder:
             progress_bar = progress_placeholder.progress(0)
@@ -116,10 +113,8 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
             start = page * page_size
             end = start + page_size - 1
             
-            # Build query
             query = supabase.table('papers').select(columns).range(start, end)
             
-            # Apply filters if provided
             if filters:
                 for filter_func in filters:
                     query = filter_func(query)
@@ -132,22 +127,18 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
                 
             all_papers.extend(page_data)
             
-            # Update progress
             if show_progress:
-                # Estimate progress (we know there are ~66k papers)
                 estimated_total = 66000
                 current_progress = min(len(all_papers) / estimated_total, 1.0)
                 progress_bar.progress(current_progress)
                 status_text.text(f"Loaded {len(all_papers):,} papers...")
             
             if len(page_data) < page_size:
-                # Last page
                 break
                 
             page += 1
             
-            # Safety break
-            if page > 25:  # Reduced since we're using 5k page size (66k/5k = ~14 pages)
+            if page > 25:
                 st.warning("Stopped pagination at 25 pages for safety")
                 break
                 
@@ -155,7 +146,6 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
             st.error(f"Error on page {page + 1}: {e}")
             break
     
-    # Clear progress indicators
     if show_progress:
         if progress_placeholder:
             progress_placeholder.empty()
@@ -165,25 +155,23 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
     
     return all_papers
 
-@st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour, custom spinner
+@st.cache_data(ttl=3600, show_spinner=False)
+
 def load_data():
     """
     Load data from Supabase using pagination to get all records.
     This replicates the notebook's SQL query and data processing exactly.
     """
-    # Create placeholders for loading messages that we can clear later
+    
     loading_placeholder = st.empty()
     progress_placeholder = st.empty()
     status_placeholder = st.empty()
     
     with loading_placeholder:
-        st.info("Data Loading Notice: This app loads 66,000+ research papers. Initial loading may take 30-60 seconds, but subsequent interactions will be instant thanks to caching.")
+        st.info("Data Loading Notice: This app loads 66,000+ research papers. Initial loading may take several seconds, but subsequent interactions will be instant thanks to caching.")
     
     with st.spinner("Loading data from Supabase... This may take a moment."):
         try:
-            # STEP 1: Load all papers with pagination
-            # Equivalent to: SELECT year, search_keyword FROM papers 
-            # WHERE search_keyword IS NOT NULL AND search_keyword != ''
             
             filters = [
                 lambda q: q.not_.is_('search_keyword', 'null'),
@@ -194,53 +182,45 @@ def load_data():
                 st.info("Loading papers data (this may take a few seconds)...")
             
             all_papers_data = get_all_papers_paginated(
-                'paperId, year, search_keyword',  # Include paperId for unique counting
+                'paperId, year, search_keyword',
                 filters=filters,
-                page_size=5000,  # Larger page size for fewer requests
+                page_size=5000,
                 show_progress=True,
                 progress_placeholder=progress_placeholder
             )
             
             df_all = pd.DataFrame(all_papers_data)
             
-            # Replicate the exact SQL aggregation
             df_raw = df_all.groupby(['year', 'search_keyword']).size().reset_index()
             df_raw.columns = ['year', 'search_keyword', 'paper_count']
         
-            # STEP 2: Apply EXACT same expansion logic as notebook
             rows = []
             total_rows = []
             
             for _, row in df_raw.iterrows():
                 keywords = [k.strip() for k in row['search_keyword'].split(',')]
                 
-                # Total tracking (exactly like notebook)
                 total_rows.append({
                     'year': row['year'], 
                     'search_keyword': 'total', 
                     'paper_count': row['paper_count']
                 })
                 
-                # Keyword expansion (exactly like notebook)
                 for keyword in keywords:
                     if keyword:
                         rows.append({
                             'year': row['year'], 
                             'search_keyword': keyword, 
-                            'paper_count': row['paper_count']  # Use full aggregated count
+                            'paper_count': row['paper_count']
                         })
             
-            # STEP 3: Final aggregation (exactly like notebook)
             df_keywords = pd.DataFrame(rows).groupby(['year', 'search_keyword'])['paper_count'].sum().reset_index()
             df_totals = pd.DataFrame(total_rows).groupby(['year', 'search_keyword'])['paper_count'].sum().reset_index()
             
-            # Rename 'total' to match app expectations
             df_totals['search_keyword'] = df_totals['search_keyword'].replace('total', 'Total (All Keywords)')
             
-            # Combine for app use
             df_keywords_combined = pd.concat([df_keywords, df_totals], ignore_index=True)
             
-            # STEP 4: Create expanded individual paper data for other analyses
             with status_placeholder:
                 st.info("Loading detailed paper data...")
             
@@ -248,18 +228,16 @@ def load_data():
                 'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount',
                 filters=filters,
                 page_size=5000,
-                show_progress=False  # Don't show progress for subsequent calls
+                show_progress=False
             )
             
             df_all_papers = pd.DataFrame(all_papers_full_data)
             
-            # Define the 6 original keywords
             original_keywords = [
                 'urban ecology', 'urban biodiversity', 'urban ecosystem',
                 'urban green spaces', 'urban vegetation', 'urban wildlife'
             ]
             
-            # Create expanded dataset for other analyses
             expanded_data = []
             for _, row in df_all_papers.iterrows():
                 keywords_in_paper = [kw.strip() for kw in row['search_keyword'].split(',')]
@@ -277,28 +255,23 @@ def load_data():
             
             df_expanded = pd.DataFrame(expanded_data)
             
-            # Optimize: Reuse the same full dataset for country data instead of separate queries
             df_papers_with_countries = df_all_papers[
                 (df_all_papers['firstAuthorCountryIso'].notna()) & 
                 (df_all_papers['firstAuthorCountryIso'] != '')
             ]
             
-            # Country data from existing dataset
             df_countries = df_papers_with_countries.groupby('firstAuthorCountryIso').size().reset_index()
             df_countries.columns = ['alpha3_code', 'paper_count']
             df_countries = df_countries.sort_values('paper_count', ascending=False)
             
-            # Country-year data from existing dataset
             df_country_years = df_papers_with_countries.groupby(['year', 'firstAuthorCountryIso']).size().reset_index()
             df_country_years.columns = ['year', 'country', 'paper_count']
             df_country_years = df_country_years.sort_values(['year', 'country'])
             
-            # Clear all loading messages
             loading_placeholder.empty()
             status_placeholder.empty()
             progress_placeholder.empty()
             
-            # IMPORTANT: Calculate total unique papers for accurate reporting
             total_unique_papers = len(df_all_papers)
             
             return df_keywords_combined, df_countries, df_expanded, df_country_years, total_unique_papers, df_totals
@@ -341,22 +314,19 @@ def linear_trend_analysis(df):
     for keyword in df['search_keyword'].unique():
         keyword_data = df[df['search_keyword'] == keyword].sort_values('year')
         
-        if len(keyword_data) < 3:  # Need at least 3 data points
+        if len(keyword_data) < 3:
             continue
         
         years = keyword_data['year'].values
         paper_counts = keyword_data['paper_count'].values
         
-        # Perform linear regression
         slope, intercept, r_value, p_value, std_err = stats.linregress(years, paper_counts)
         
         r_squared = r_value**2
         
-        # Calculate confidence intervals (95%)
         n = len(years)
-        t_val = stats.t.ppf(0.975, n-2)  # 95% confidence interval
+        t_val = stats.t.ppf(0.975, n-2)
         
-        # Standard error for slope
         s_yx = np.sqrt(np.sum((paper_counts - (slope * years + intercept))**2) / (n - 2))
         s_xx = np.sum((years - np.mean(years))**2)
         slope_se = s_yx / np.sqrt(s_xx)
@@ -364,10 +334,8 @@ def linear_trend_analysis(df):
         slope_ci_lower = slope - t_val * slope_se
         slope_ci_upper = slope + t_val * slope_se
         
-        # Determine significance (p < 0.05)
         is_significant = p_value < 0.05
         
-        # Determine trend direction and interpretation
         if is_significant:
             if slope > 0:
                 trend_direction = "Increasing"
@@ -409,35 +377,27 @@ def log_trend_analysis(df, min_papers=1):
     for keyword in df['search_keyword'].unique():
         keyword_data = df[df['search_keyword'] == keyword].sort_values('year')
         
-        # Filter out keywords with very few papers
         if keyword_data['paper_count'].sum() < min_papers or len(keyword_data) < 3:
             continue
         
         years = keyword_data['year'].values
         paper_counts = keyword_data['paper_count'].values
         
-        # Add small constant to handle zero counts for log transformation
         log_counts = np.log(paper_counts + 1)
         
-        # Perform linear regression on log-transformed data
         slope, intercept, r_value, p_value, std_err = stats.linregress(years, log_counts)
         
         r_squared = r_value**2
         
-        # Calculate annual growth rate from log regression
-        # slope in log space represents the growth rate
         annual_growth_rate = (np.exp(slope) - 1) * 100
         
-        # Calculate doubling time (years)
         if slope > 0:
             doubling_time = np.log(2) / slope
         else:
             doubling_time = np.inf
         
-        # Determine significance
         is_significant = p_value < 0.05
         
-        # Interpretation
         if is_significant:
             if annual_growth_rate > 0:
                 interpretation = f"Exponential growth: {annual_growth_rate:.1f}% per year"
@@ -468,25 +428,22 @@ def compare_linear_vs_exponential(df, min_papers=1):
     Compare linear vs exponential growth models for each keyword
     Returns comparison dataframe with model selection results.
     """
-    # Get results from both analyses
+    
     linear_results = linear_trend_analysis(df)
     log_results = log_trend_analysis(df, min_papers)
     
     if linear_results.empty and log_results.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
-    # Merge results for comparison
     comparison = pd.merge(linear_results[['keyword', 'r_squared', 'p_value', 'significant_trend']], 
                          log_results[['keyword', 'r_squared', 'p_value', 'significant_trend', 'annual_growth_rate_percent', 'doubling_time_years']], 
                          on='keyword', 
                          suffixes=('_linear', '_log'))
     
-    # Determine which model fits better
     comparison['better_fit'] = np.where(comparison['r_squared_log'] > comparison['r_squared_linear'], 
                                        'Exponential', 'Linear')
     comparison['r_squared_difference'] = comparison['r_squared_log'] - comparison['r_squared_linear']
     
-    # Add model selection interpretation
     comparison['model_recommendation'] = comparison.apply(lambda row: 
         f"Use {row['better_fit']} model (ΔR² = {row['r_squared_difference']:.3f})", axis=1)
     
@@ -498,49 +455,41 @@ def create_keyword_similarity_matrix(df_expanded, selected_keywords, year_range)
     multiple keywords. Shows which keywords appear together in the same papers.
     Note: Excludes 'Total' option as it represents aggregated data.
     """
-    # Filter out the Total option for similarity analysis
+    
     analysis_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
     
     if len(analysis_keywords) < 2:
-        return None  # Need at least 2 keywords for similarity analysis
+        return None
     
-    # Filter by year range and selected keywords
     df_filtered = df_expanded[
         (df_expanded['year'] >= year_range[0]) & 
         (df_expanded['year'] <= year_range[1]) &
         (df_expanded['search_keyword'].isin(analysis_keywords))
     ]
     
-    # Group by paper to see which keywords appear together
     paper_keywords = df_filtered.groupby('paperId')['search_keyword'].apply(list).reset_index()
     
-    # Count co-occurrences
     cooccurrence_counts = {}
     keyword_counts = {}
     
-    # Initialize counts
     for kw in analysis_keywords:
         keyword_counts[kw] = 0
         for kw2 in analysis_keywords:
             cooccurrence_counts[(kw, kw2)] = 0
     
-    # Count occurrences and co-occurrences
     for _, row in paper_keywords.iterrows():
         keywords_in_paper = row['search_keyword']
         
-        # Count individual keywords
         for kw in keywords_in_paper:
             if kw in analysis_keywords:
                 keyword_counts[kw] += 1
         
-        # Count co-occurrences (pairs)
         for i, kw1 in enumerate(keywords_in_paper):
             for kw2 in keywords_in_paper[i+1:]:
                 if kw1 in analysis_keywords and kw2 in analysis_keywords:
                     cooccurrence_counts[(kw1, kw2)] += 1
-                    cooccurrence_counts[(kw2, kw1)] += 1  # Symmetric
+                    cooccurrence_counts[(kw2, kw1)] += 1
     
-    # Create similarity matrix using Jaccard similarity
     similarity_matrix = pd.DataFrame(
         np.zeros((len(analysis_keywords), len(analysis_keywords))),
         index=analysis_keywords, 
@@ -550,7 +499,6 @@ def create_keyword_similarity_matrix(df_expanded, selected_keywords, year_range)
     for kw1 in analysis_keywords:
         for kw2 in analysis_keywords:
             if kw1 != kw2:
-                # Jaccard similarity: intersection / union
                 intersection = cooccurrence_counts[(kw1, kw2)]
                 union = keyword_counts[kw1] + keyword_counts[kw2] - intersection
                 if union > 0:
@@ -564,48 +512,37 @@ def display_chart_control(fig, chart_type="default"):
     Display chart with responsive width control using native Streamlit columns.
     Uses very small margins that become negligible on mobile devices.
     """
-    # Configuration variables for easy testing
-    TARGET_ASPECT_RATIO = 4/3  # Change this to test different ratios (4:3, 16:9, 3:2, etc.)
-    BASE_HEIGHT = 800  # Base height in pixels for calculations
+    BASE_HEIGHT = 800
     
-    # Use very small column ratios that will appear nearly full-width on mobile
-    # while maintaining some centering on large desktop screens
     if chart_type in ["map", "choropleth"]:
-        # Maps: almost full width
-        col_ratios = [0.05, 0.90, 0.05]  # Only 2% total margins
-        final_height = int(BASE_HEIGHT * 0.8)  # 640px - good for world maps
+        col_ratios = [0.05, 0.90, 0.05]
+        final_height = int(BASE_HEIGHT * 0.8)
     elif chart_type in ["time_series"]:
-        # Time series: minimal margins
-        col_ratios = [0.10, 0.80, 0.10]  # Only 4% total margins
-        final_height = int(BASE_HEIGHT * 1.05)  # 720px - good for temporal data
+        col_ratios = [0.05, 0.90, 0.05]
+        final_height = int(BASE_HEIGHT * 1.05)
     elif chart_type in ["heatmap"]:
-        # Heatmaps: small margins
-        col_ratios = [0.15, 0.70, 0.15]  # Only 6% total margins
-        final_height = int(BASE_HEIGHT * 1.1)  # 880px - more height for readability
+        col_ratios = [0.15, 0.70, 0.15]
+        final_height = int(BASE_HEIGHT * 1.1)
     elif chart_type in ["top_countries"]:
         col_ratios = [0.05, 0.90, 0.05]
         final_height = int(BASE_HEIGHT * 0.85)
     else:
-        # Default: very small margins (will be almost full-width on mobile)
-        col_ratios = [0.125, 0.75, 0.125]  # Only 5% total margins
-        final_height = BASE_HEIGHT  # 800px - standard height
+        col_ratios = [0.1, 0.80, 0.1]
+        final_height = BASE_HEIGHT
     
-    # Create columns with specified ratios
     col1, col2, col3 = st.columns(col_ratios)
     
-    # Force height at the Plotly figure level - this should override everything
     fig.update_layout(
         height=final_height,
-        autosize=False,  # Disable autosize to respect our height
-        margin=dict(l=40, r=40, t=60, b=40)  # Keep margins reasonable
+        autosize=False,
+        margin=dict(l=40, r=40, t=60, b=40)
     )
     
     with col2:
-        # Use both figure-level height AND Streamlit height parameter
         st.plotly_chart(
             fig, 
-            use_container_width=True,  # Keep width responsive
-            height=final_height,       # Use Streamlit's height parameter
+            use_container_width=True,
+            height=final_height,
             config={'responsive': False, 'displayModeBar': False}
         )
 
