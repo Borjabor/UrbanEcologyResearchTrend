@@ -642,18 +642,6 @@ def main():
     if 'show_loading_messages' not in st.session_state:
         st.session_state.show_loading_messages = True
     
-    if st.session_state.show_loading_messages:
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            st.success(f"Data successfully loaded: {total_unique_papers:,} unique papers ready for analysis!")
-            st.info("Tip: All interactions are now instant thanks to caching.")
-        
-        with col2:
-            if st.button("✕ Dismiss", help="Hide these loading messages"):
-                st.session_state.show_loading_messages = False
-                st.rerun()
-    
     
     # ==========================================
     # SIDEBAR CONTROLS
