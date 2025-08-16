@@ -203,4 +203,5 @@ __marimo__/
 *.jsonl
 *.csv
 *.txt
+!requirements.txt
 *.db
