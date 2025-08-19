@@ -73,7 +73,7 @@ Although these are just guesses, and only with time we'll be able to confirm or 
 ![Per-Keyword time series analysis](images/keyword_time_series.png)
 
 
-While some keywords are clearly more popular than other, they all tend to follow a similar trend as the graph above. That said, it is interesting to see how Urban Ecosystems and Green Spaces exploded in the 2010s, producing as much papers as the other 4 keywords.
+While some keywords are clearly more popular than other, they all tend to follow a similar trend as the previous graph. That said, it is interesting to see how Urban Ecosystems and Green Spaces exploded in the 2010s, producing as much papers as the other 4 keywords.
 
 
 ==============================================================
@@ -107,7 +107,7 @@ Results:
 | Data | LINEAR MODEL | EXPONENTIAL MODEL |
 | -----|--------------|-------------------|
 | ` Annual Growth rate` | 93.87 new papers | 11.2% more papers |
-| `R²` | 0.6442 | 0.9567 |
+| `9156` | 0.6442 | 0.9567 |
 | `P-value` | 2.91e-13 | 4.04e-37 |
 
 ![Regression analysis](images/urban_linear_vs_exponential.png)

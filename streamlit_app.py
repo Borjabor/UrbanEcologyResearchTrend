@@ -90,6 +90,7 @@ def load_css():
 
 load_css()
 
+
 # ==========================================
 # HELPER FUNCTIONS
 # ==========================================
@@ -157,6 +158,16 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
 
 @st.cache_data(ttl=3600, show_spinner=False)
 
+def get_country_name(alpha3_code):
+    """
+    Convert alpha-3 country codes to full country names using pycountry.
+    """
+    try:
+        country = pycountry.countries.get(alpha_3=alpha3_code)
+        return country.name if country else alpha3_code
+    except (KeyError, AttributeError):
+        return alpha3_code
+
 def load_data():
     """
     Load data from Supabase using pagination to get all records.
@@ -182,7 +193,7 @@ def load_data():
                 st.info("Loading papers data (this may take a few seconds)...")
             
             all_papers_data = get_all_papers_paginated(
-                'paperId, year, search_keyword',
+                'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount',
                 filters=filters,
                 page_size=5000,
                 show_progress=True,
@@ -224,22 +235,13 @@ def load_data():
             with status_placeholder:
                 st.info("Loading detailed paper data...")
             
-            all_papers_full_data = get_all_papers_paginated(
-                'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount',
-                filters=filters,
-                page_size=5000,
-                show_progress=False
-            )
-            
-            df_all_papers = pd.DataFrame(all_papers_full_data)
-            
             original_keywords = [
                 'urban ecology', 'urban biodiversity', 'urban ecosystem',
                 'urban green spaces', 'urban vegetation', 'urban wildlife'
             ]
             
             expanded_data = []
-            for _, row in df_all_papers.iterrows():
+            for _, row in df_all.iterrows():
                 keywords_in_paper = [kw.strip() for kw in row['search_keyword'].split(',')]
                 for keyword in keywords_in_paper:
                     if keyword in original_keywords:
@@ -255,41 +257,47 @@ def load_data():
             
             df_expanded = pd.DataFrame(expanded_data)
             
-            df_papers_with_countries = df_all_papers[
-                (df_all_papers['firstAuthorCountryIso'].notna()) & 
-                (df_all_papers['firstAuthorCountryIso'] != '')
+            df_papers_with_countries = df_all[
+                (df_all['firstAuthorCountryIso'].notna()) & 
+                (df_all['firstAuthorCountryIso'] != '')
             ]
             
-            df_countries = df_papers_with_countries.groupby('firstAuthorCountryIso').size().reset_index()
-            df_countries.columns = ['alpha3_code', 'paper_count']
-            df_countries = df_countries.sort_values('paper_count', ascending=False)
+            # df_countries = df_papers_with_countries.groupby('firstAuthorCountryIso').size().reset_index()
+            # df_countries.columns = ['alpha3_code', 'paper_count']
+            # df_countries = df_countries.sort_values('paper_count', ascending=False)
             
-            df_country_years = df_papers_with_countries.groupby(['year', 'firstAuthorCountryIso']).size().reset_index()
-            df_country_years.columns = ['year', 'country', 'paper_count']
-            df_country_years = df_country_years.sort_values(['year', 'country'])
+            
+            df_countries = (
+                df_all[
+                    df_all['firstAuthorCountryIso'].notnull() & 
+                    (df_all['firstAuthorCountryIso'] != '')]
+                [['paperId', 'year', 'search_keyword', 'firstAuthorCountryIso']]
+                .rename(columns={'firstAuthorCountryIso': 'alpha3_code'})
+                .sort_values('year')
+                .reset_index(drop=True)
+            )
+            
+            df_countries['country'] =df_countries['alpha3_code'].apply(get_country_name)
+            
+            df_country_year_counts = (
+                df_countries
+                .groupby(['year', 'country', 'alpha3_code', 'search_keyword'])
+                .agg(paper_count=('paperId', 'nunique'))
+                .reset_index()
+            )
+            
             
             loading_placeholder.empty()
             status_placeholder.empty()
             progress_placeholder.empty()
             
-            total_unique_papers = len(df_all_papers)
+            total_unique_papers = len(df_all)
             
-            return df_keywords_combined, df_countries, df_expanded, df_country_years, total_unique_papers, df_totals
+            return df_keywords_combined, df_countries, df_expanded, df_country_year_counts, total_unique_papers, df_totals
             
         except Exception as e:
             st.error(f"Error loading data from Supabase: {e}")
             return None, None, None, None, 0, None
-
-def get_country_name(alpha3_code):
-    """
-    Convert alpha-3 country codes to full country names using pycountry.
-    """
-    try:
-        country = pycountry.countries.get(alpha_3=alpha3_code)
-        return country.name if country else alpha3_code
-    except (KeyError, AttributeError):
-        return alpha3_code
-
 
 def get_actual_keywords(selected_keywords):
     """
@@ -449,64 +457,6 @@ def compare_linear_vs_exponential(df, min_papers=1):
     
     return comparison, linear_results, log_results
 
-def create_keyword_similarity_matrix(df_expanded, selected_keywords, year_range):
-    """
-    Create keyword co-occurrence similarity matrix based on papers that contain
-    multiple keywords. Shows which keywords appear together in the same papers.
-    Note: Excludes 'Total' option as it represents aggregated data.
-    """
-    
-    analysis_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
-    
-    if len(analysis_keywords) < 2:
-        return None
-    
-    df_filtered = df_expanded[
-        (df_expanded['year'] >= year_range[0]) & 
-        (df_expanded['year'] <= year_range[1]) &
-        (df_expanded['search_keyword'].isin(analysis_keywords))
-    ]
-    
-    paper_keywords = df_filtered.groupby('paperId')['search_keyword'].apply(list).reset_index()
-    
-    cooccurrence_counts = {}
-    keyword_counts = {}
-    
-    for kw in analysis_keywords:
-        keyword_counts[kw] = 0
-        for kw2 in analysis_keywords:
-            cooccurrence_counts[(kw, kw2)] = 0
-    
-    for _, row in paper_keywords.iterrows():
-        keywords_in_paper = row['search_keyword']
-        
-        for kw in keywords_in_paper:
-            if kw in analysis_keywords:
-                keyword_counts[kw] += 1
-        
-        for i, kw1 in enumerate(keywords_in_paper):
-            for kw2 in keywords_in_paper[i+1:]:
-                if kw1 in analysis_keywords and kw2 in analysis_keywords:
-                    cooccurrence_counts[(kw1, kw2)] += 1
-                    cooccurrence_counts[(kw2, kw1)] += 1
-    
-    similarity_matrix = pd.DataFrame(
-        np.zeros((len(analysis_keywords), len(analysis_keywords))),
-        index=analysis_keywords, 
-        columns=analysis_keywords
-    )
-    
-    for kw1 in analysis_keywords:
-        for kw2 in analysis_keywords:
-            if kw1 != kw2:
-                intersection = cooccurrence_counts[(kw1, kw2)]
-                union = keyword_counts[kw1] + keyword_counts[kw2] - intersection
-                if union > 0:
-                    similarity = intersection / union
-                    similarity_matrix.at[kw1, kw2] = similarity
-            
-    return similarity_matrix
-
 def display_chart_control(fig, chart_type="default"):
     """
     Display chart with responsive width control using native Streamlit columns.
@@ -519,15 +469,12 @@ def display_chart_control(fig, chart_type="default"):
         final_height = int(BASE_HEIGHT * 0.8)
     elif chart_type in ["time_series"]:
         col_ratios = [0.05, 0.90, 0.05]
-        final_height = int(BASE_HEIGHT * 1.05)
-    elif chart_type in ["heatmap"]:
-        col_ratios = [0.15, 0.70, 0.15]
-        final_height = int(BASE_HEIGHT * 1.1)
+        final_height = int(BASE_HEIGHT)
     elif chart_type in ["top_countries"]:
         col_ratios = [0.05, 0.90, 0.05]
-        final_height = int(BASE_HEIGHT * 0.85)
+        final_height = int(BASE_HEIGHT * 0.65)
     else:
-        col_ratios = [0.1, 0.80, 0.1]
+        col_ratios = [0.075, 0.85, 0.075]
         final_height = BASE_HEIGHT
     
     col1, col2, col3 = st.columns(col_ratios)
@@ -566,7 +513,7 @@ def main():
     and modifying various parameters.
     """)
     
-    df_keywords, df_countries, df_expanded, df_country_years, total_unique_papers, df_totals = load_data()
+    df_keywords, df_countries, df_expanded, df_country_year_counts, total_unique_papers, df_totals = load_data()
     
     if df_keywords is None:
         st.error("Failed to load data from Supabase. Please check the connection and table setup.")
@@ -646,17 +593,239 @@ def main():
     # MAIN CONTENT TABS
     # ==========================================
     
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3 = st.tabs([
+        "Geographic Analysis",
         "Time Series", 
-        "Keyword Relationships", 
         "Regression Analysis",
-        "Geographic Analysis"
     ])
     
     # ==========================================
-    # TAB 1: TIME SERIES ANALYSIS
+    # TAB 1: GEOGRAPHIC ANALYSIS
     # ==========================================
     with tab1:
+        st.header("World Research Distribution")
+            
+        left_col, right_col = st.columns([4, 1])
+        
+        df_country_totals = (
+            df_country_year_counts.groupby(['country', 'alpha3_code'])['paper_count']
+            .sum()
+            .reset_index()
+            .rename(columns={'paper_count': 'total_count'})
+        )
+        
+        df_countries_filtered = (
+            df_countries
+            .groupby(['country', 'alpha3_code', 'year'])
+            .agg(paper_count=('paperId', 'nunique'))
+            .reset_index()
+        )
+        
+        
+        df_top_country_totals = df_country_totals.copy()
+        df_top_country_totals = df_top_country_totals.sort_values('total_count', ascending=False).head(top_n_countries)
+        
+        top_countries = df_top_country_totals['country'].tolist()
+        df_counts_filtered = df_country_year_counts[df_country_year_counts['country'].isin(top_countries)]
+        
+        df_countries_filtered = df_countries_filtered[df_countries_filtered['country'].isin(top_countries)]
+        df_countries_filtered['country'] = pd.Categorical(df_countries_filtered['country'], categories=top_countries, ordered=True)
+        df_countries_filtered = df_countries_filtered.sort_values(['country', 'year']).reset_index(drop=True)
+        
+        map_height = 600
+        
+        fig_choropleth = px.choropleth(
+            df_country_totals,
+            locations='alpha3_code',
+            color='total_count',
+            hover_name='country',
+            hover_data={'alpha3_code': False, 'total_count': ':,'},
+            color_continuous_scale='Viridis',
+            title="Global Distribution of Urban Ecology Research",
+            labels={'total_count': 'Number of Papers'},
+            range_color=[0, df_country_totals['total_count'].max()]
+        )
+        
+        fig_choropleth.update_layout(
+            template='plotly_dark',
+            autosize=False,
+            geo=dict(
+                showframe=False,
+                showcoastlines=True,
+                showland=True,
+                landcolor='rgb(243, 243, 243)',
+                coastlinecolor='rgb(204, 204, 204)',
+                center=dict(lat=10, lon=0),
+            ),
+            margin=dict(l=0, r=0, t=25, b=0)
+        )
+        
+        with left_col:
+            st.plotly_chart(
+                fig_choropleth, 
+                use_container_width=True,
+                height=map_height,
+                config={'responsive': False, 'displayModeBar': False}
+            )
+            
+        with right_col:
+            st.markdown(f'**Top {top_n_countries} Countries Time Series**')
+            
+            
+            with st.container(height=map_height):
+                for country, group in df_countries_filtered.groupby('country', sort=False):
+                    country_code = group['alpha3_code'].iloc[0]
+                    country_name = country
+
+                    country_ts = group[
+                        (group['year'] >= min_year) &
+                        (group['year'] <= max_year)
+                    ]
+        
+                    if not country_ts.empty:
+                        fig = px.line(
+                            country_ts,
+                            x='year',
+                            y='paper_count',
+                            title=country_name,
+                            labels={'year': 'Year', 'paper_count': 'Papers'}
+                        )
+                        fig.update_layout(
+                            template='plotly_dark',
+                            autosize=True,
+                            height=200,
+                            margin=dict(l=10, r=10, t=20, b=0),
+                            title_font_size=13,
+                        )
+                        st.plotly_chart(fig, use_container_width=True, key=f"country_chart_{country_code}")
+                    else:
+                        st.write(f"*No data for {country_name}*")
+          
+        st.write('_' * 60)
+        st.subheader("Top Research-Producing Countries")
+            
+        top_country_height = 500
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            st.markdown("#### Country Research Output")
+            
+            # Root node
+            labels = ["All Papers"]
+            ids = ["root"]
+            parents = [""]
+            values = [df_top_country_totals['total_count'].sum()]
+
+            # Country nodes
+            for _, row in df_top_country_totals.iterrows():
+                labels.append(f"{row['country']}<br>({row['total_count']:,})")
+                ids.append(f"country_{row['country']}")
+                parents.append("root")
+                values.append(row['total_count'])
+                
+            colors = [np.nan] + values[1:]
+                
+            fig_treemap = go.Figure(go.Treemap(
+                ids=ids,
+                labels=labels,
+                parents=parents,
+                values=values,
+                marker=dict(
+                    colors=colors,
+                    colorscale='Viridis',
+                    colorbar=dict(
+                        title="Number of Papers",
+                        x=1.05,
+                        len=0.8
+                    )
+                ),
+                maxdepth=2,
+                hoverinfo="skip",
+                root_color="lightgrey",
+                branchvalues="total"
+            ))
+
+            fig_treemap.update_layout(
+                title="Total Research Output by Country",
+                margin=dict(l=0, r=0, t=40, b=0),
+                autosize=True,
+                uniformtext_minsize=10,
+                uniformtext_mode='hide'
+            )
+
+            st.plotly_chart(fig_treemap, use_container_width=True, height=top_country_height, key="treemap_main")
+            
+        with chart_col2:
+            st.markdown("#### Output For Each Keyword")
+            
+            original_keywords = [
+                'urban ecology', 'urban biodiversity', 'urban ecosystem',
+                'urban green spaces', 'urban vegetation', 'urban wildlife'
+            ]
+            
+            df_countries_exploded = df_countries.copy()
+            
+            df_countries_exploded['keywords'] = df_countries_exploded['search_keyword'].str.split(',')
+            df_countries_exploded = df_countries_exploded.explode('keywords')
+            df_countries_exploded['keywords'] = df_countries_exploded['keywords'].str.strip()
+
+            df_counts_keywords = (
+                df_countries_exploded
+                .groupby(['country', 'keywords', 'alpha3_code'])
+                .agg(paper_count=('paperId', 'nunique'))
+                .reset_index()
+            )
+            
+            
+            heatmap_data = (
+                df_counts_keywords[df_counts_keywords['country'].isin(top_countries) & df_counts_keywords['keywords'].isin(original_keywords)]
+                .pivot(index='country', columns='keywords', values='paper_count')
+                .fillna(0)
+            )
+
+            fig_keyword_output_heatmap = go.Figure(data=go.Heatmap(
+                z=heatmap_data.values,
+                x=heatmap_data.columns,
+                y=heatmap_data.index,
+                colorscale='Viridis',
+                colorbar=dict(title='Number of Papers'),
+                hovertemplate='<b>%{y}</b><br>Keyword: %{x}<br>Papers: %{z}<extra></extra>',
+                showscale=True
+            ))
+
+            fig_keyword_output_heatmap.update_layout(
+                title='Urban Ecology Research Output: Top Countries vs Keywords',
+                margin=dict(l=0, r=0, t=40, b=0),
+                autosize=True,
+                xaxis_title='Keyword',
+                yaxis_title='Country',
+                template='plotly_dark',
+                font=dict(size=12)
+            )
+            
+                
+            st.plotly_chart(fig_keyword_output_heatmap, use_container_width=True, height=top_country_height)
+    
+                
+        
+        st.subheader("Geographic Summary")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Countries Analyzed", len(df_countries_filtered))
+        
+        with col2:
+            st.metric("Leading Country", df_countries_filtered.iloc[0]['country'])
+        
+        with col3:
+            total_papers_geo = df_countries_filtered['paper_count'].sum()
+            st.metric("Total Papers (Top Countries)", f"{total_papers_geo:,}")
+        
+            
+    # ==========================================
+    # TAB 2: TIME SERIES ANALYSIS
+    # ==========================================
+    with tab2:
         st.header("Time Series Analysis")
         st.markdown("Explore how research volume has changed over time for different keywords.")
         
@@ -723,56 +892,6 @@ def main():
         with col3:
             years_span = max_year - min_year + 1
             st.metric("Years Analyzed", years_span)
-    
-    # ==========================================
-    # TAB 2: KEYWORD RELATIONSHIPS
-    # ==========================================
-    with tab2:
-        st.header("Keyword Relationship Analysis")
-        st.markdown("Analyze how often keywords appear together in research papers.")
-        
-        analysis_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
-        
-        if len(analysis_keywords) < 2:
-            if "Total (All Keywords)" in selected_keywords:
-                st.info("Keyword relationship analysis is not applicable when 'Total (All Keywords)' is selected, as it represents aggregated data. Please select at least 2 individual keywords to see their relationships.")
-            else:
-                st.warning("Please select at least 2 keywords to analyze relationships.")
-        else:
-            with st.spinner("Computing keyword similarities..."):
-                similarity_matrix = create_keyword_similarity_matrix(
-                    df_expanded, selected_keywords, (min_year, max_year)
-                )
-            
-            if similarity_matrix is not None:
-                mask = np.triu(np.ones_like(similarity_matrix, dtype=bool), k=1)
-                similarity_matrix_masked = similarity_matrix.copy()
-                similarity_matrix_masked[mask] = np.nan
-                
-                fig_heatmap = px.imshow(
-                    similarity_matrix_masked,
-                    title="Keyword Co-occurrence Similarity Matrix",
-                    labels=dict(x="Keyword", y="Keyword", color="Similarity"),
-                    aspect="auto",
-                    color_continuous_scale="Viridis",
-                    zmin=0,
-                    zmax=1
-                )
-            
-                fig_heatmap.update_layout(
-                    template='plotly_dark',
-                    autosize=True,
-                    margin=dict(l=20, r=20, t=50, b=20)
-                )
-                
-                display_chart_control(fig_heatmap, "heatmap")
-            
-            # Explanation
-            st.markdown("""
-            **How to read this matrix:**
-            - Values closer to 0 indicate keywords that rarely appear together
-            - Values closer to 1 indicate keywords that frequently appear together in papers
-            """)
     
     # ==========================================
     # TAB 3: REGRESSION ANALYSIS
@@ -1029,189 +1148,6 @@ def main():
         else:
             st.warning("Not enough data points for regression analysis with current selections.")
     
-    # ==========================================
-    # TAB 4: GEOGRAPHIC ANALYSIS
-    # ==========================================
-    with tab4:
-        st.header("Geographic Distribution")
-        st.markdown("Explore research distribution across different countries.")
-        
-        geo_tab1, geo_tab2 = st.tabs(["Country Rankings", "World Map"])
-        
-        df_countries_filtered = df_countries.head(top_n_countries).copy()
-        df_countries_filtered.loc[:, 'country_name'] = df_countries_filtered['alpha3_code'].apply(get_country_name)
-        
-        with geo_tab1:
-            st.subheader("Top Research-Producing Countries")
-            
-            chart_col1, chart_col2 = st.columns(2)
-            
-            with chart_col1:
-                st.markdown("#### Country Research Output")
-                
-                if not df_countries_filtered.empty and 'country_name' in df_countries_filtered.columns:
-                    treemap_data = df_countries_filtered[
-                        df_countries_filtered['country_name'].notna() & 
-                        (df_countries_filtered['paper_count'] > 0)
-                    ].copy()
-                    
-                    treemap_data['paper_count'] = treemap_data['paper_count'].astype(int)
-                    treemap_data['country_name'] = treemap_data['country_name'].astype(str)
-                    
-                    treemap_data['country_name'] = treemap_data['country_name'].str.replace(r'[^\w\s-]', '', regex=True)
-                    
-                    treemap_data = treemap_data.reset_index(drop=True)
-                    
-                    if not treemap_data.empty and len(treemap_data) > 0:
-                        try:
-                            fig_treemap = px.treemap(
-                                treemap_data,
-                                values='paper_count',
-                                names='country_name',
-                                parents=[''] * len(treemap_data),
-                                title=f"Research Output by Country (Top {top_n_countries})",
-                                color='paper_count',
-                                color_continuous_scale='Viridis'
-                            )
-                            
-                            fig_treemap.update_traces(
-                                textinfo="label+value",
-                                textfont_size=11
-                            )
-                            
-                            fig_treemap.update_layout(
-                                template='plotly_dark',
-                                autosize=True,
-                                margin=dict(t=50, l=15, r=15, b=15),
-                                title_font_size=15
-                            )
-                            
-                            display_chart_control(fig_treemap, "top_countries")
-                        
-                        except Exception as e:
-                            st.error(f"Error creating treemap: {str(e)}")
-                            st.write("Attempting alternative bar chart...")
-                            
-                            fig_bar = px.bar(
-                                treemap_data.head(10),
-                                x='paper_count',
-                                y='country_name',
-                                orientation='h',
-                                title=f"Top 10 Countries by Research Output",
-                                color='paper_count',
-                                color_continuous_scale='Viridis'
-                            )
-                            fig_bar.update_layout(
-                                template='plotly_dark',
-                                autosize=True,
-                                margin=dict(l=15, r=15, t=50, b=15),
-                                title_font_size=15
-                            )
-                            
-                            st.plotly_chart(fig_bar, use_container_width=True, height=500)
-                    else:
-                        st.error("No valid data for treemap after filtering")
-                else:
-                    st.error("Unable to create treemap - check data structure")
-            
-            with chart_col2:
-                st.markdown("#### Research Trends Over Time")
-                
-                top_countries = df_countries_filtered['alpha3_code'].tolist()
-                df_country_years_filtered = df_country_years[
-                    (df_country_years['country'].isin(top_countries)) &
-                    (df_country_years['year'] >= min_year) &
-                    (df_country_years['year'] <= max_year)
-                ]
-                
-                if not df_country_years_filtered.empty:
-                    df_country_years_filtered = df_country_years_filtered.copy()
-                    df_country_years_filtered.loc[:, 'country_name'] = df_country_years_filtered['country'].apply(get_country_name)
-                    
-                    heatmap_data = df_country_years_filtered.pivot(
-                        index='country_name', 
-                        columns='year', 
-                        values='paper_count'
-                    ).fillna(0)
-                    
-                    heatmap_data_masked = heatmap_data.replace(0, np.nan)
-                    
-                    fig_country_heatmap = px.imshow(
-                        heatmap_data_masked,
-                        title=f"Research Output Over Time by Country (Top {top_n_countries})",
-                        labels=dict(x="Year", y="Country", color="Papers"),
-                        aspect="auto",
-                        color_continuous_scale="Viridis"
-                    )
-                    
-                    fig_country_heatmap.update_layout(
-                        template='plotly_dark',
-                        autosize=True,
-                        margin=dict(l=15, r=15, t=50, b=15),
-                        title_font_size=15
-                    )
-                    
-                    display_chart_control(fig_country_heatmap, "top_countries")
-                    
-                else:
-                    st.warning("No country-year data available for the selected parameters.")
-        
-        with geo_tab2:
-            st.subheader("World Research Distribution")
-            
-            df_countries_choropleth = df_countries.copy()
-            df_countries_choropleth['country_name'] = df_countries_choropleth['alpha3_code'].apply(get_country_name)
-            
-            fig_choropleth = px.choropleth(
-                df_countries_choropleth,
-                locations='alpha3_code',
-                color='paper_count',
-                hover_name='country_name',
-                hover_data={'alpha3_code': False, 'paper_count': ':,'},
-                color_continuous_scale='Viridis',
-                title="Global Distribution of Urban Ecology Research",
-                labels={'paper_count': 'Number of Papers'},
-                range_color=[0, df_countries_choropleth['paper_count'].max()]
-            )
-            
-            fig_choropleth.update_layout(
-                template='plotly_dark',
-                autosize=True,
-                geo=dict(
-                    showframe=False,
-                    showcoastlines=True,
-                    showland=True,
-                    landcolor='rgb(243, 243, 243)',
-                    coastlinecolor='rgb(204, 204, 204)',
-                ),
-                margin=dict(l=20, r=20, t=50, b=20)
-            )
-            
-            display_chart_control(fig_choropleth, "choropleth")
-            
-            st.markdown("""
-            **Map Interpretation:**
-            - Lighter colors indicate higher research output
-            - Hover over countries to see exact paper counts
-            - Gray areas represent countries with no data in our dataset
-            """)
-        
-        st.subheader("Geographic Summary")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Countries Analyzed", len(df_countries_filtered))
-        
-        with col2:
-            st.metric("Leading Country", df_countries_filtered.iloc[0]['country_name'])
-        
-        with col3:
-            total_papers_geo = df_countries_filtered['paper_count'].sum()
-            st.metric("Total Papers (Top Countries)", f"{total_papers_geo:,}")
-        
-        with col4:
-            avg_papers_country = df_countries_filtered['paper_count'].mean()
-            st.metric("Avg Papers/Country", f"{avg_papers_country:.0f}")
     
 
 if __name__ == "__main__":
