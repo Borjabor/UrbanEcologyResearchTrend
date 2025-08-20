@@ -1,5 +1,61 @@
 /* Urban Ecology Research Trends - Custom Styles */
 
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap');
+
+/* Font controls */
+
+/* Main app body text */
+body, .stApp {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+    font-size: 16px !important;
+    font-weight: 300 !important;
+    color: #eaeaea !important;
+}
+
+/* Main title (h1) */
+h1 {
+    font-family: 'Montserrat', Helvetica, sans-serif !important;
+    font-size: 3rem !important;
+    font-weight: bold !important;
+    font-style: normal !important;
+    margin-top: 0.5rem !important;
+}
+
+/* Subheaders */
+h2 {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+    font-size: 1.8rem !important;
+    font-weight: 400 !important;
+    font-style: italic !important;
+    margin-top: 0.5rem !important;
+}
+
+h3 {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+    font-size: 1.4rem !important;
+    font-weight: 200 !important;
+    font-style: normal !important;
+    margin-top: 0.5rem !important;
+}
+
+/* Sidebar header */
+section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+    font-family: 'Montserrat', sans-serif !important;
+    font-weight: bold !important;
+}
+
+[data-testid="stMetricLabel"] {
+    text-align: center !important;
+    width: 100% !important;
+    display: block !important;
+}
+
+[data-testid="stMetricValue"] {
+    text-align: center !important;
+    align-items: center !important;
+}
+
+/* Top of app padding */
 div[data-testid="stMainBlockContainer"] {
     padding-top: 2rem !important;
 }
@@ -27,9 +83,9 @@ div[data-testid="stMultiSelect"] > div > div > div {
 
 /* Selected keyword tags/buttons */
 div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
-    background-color: #15a35c !important;
+    background-color: #134c30 !important;
     color: #ffffff !important;
-    border: 1px solid #4ecdc4 !important;
+    border: 1px solid #288e87 !important;
     border-radius: 6px !important;
     padding: 4px 8px !important;
     font-weight: 500 !important;
@@ -104,7 +160,7 @@ section[data-testid="stSidebar"] div[data-baseweb="slider"] {
 
 /* Slider track */
 section[data-testid="stSidebar"] div[data-baseweb="slider"] > div > div {
-    background: linear-gradient(to right, #4ecdc4 0%, #26de81 100%) !important;
+    background: linear-gradient(to right, #066963 0%, #0c8147 100%) !important;
     height: 6px !important;
     border-radius: 4px !important;
     position: relative !important;

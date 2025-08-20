@@ -262,11 +262,6 @@ def load_data():
                 (df_all['firstAuthorCountryIso'] != '')
             ]
             
-            # df_countries = df_papers_with_countries.groupby('firstAuthorCountryIso').size().reset_index()
-            # df_countries.columns = ['alpha3_code', 'paper_count']
-            # df_countries = df_countries.sort_values('paper_count', ascending=False)
-            
-            
             df_countries = (
                 df_all[
                     df_all['firstAuthorCountryIso'].notnull() & 
@@ -505,13 +500,9 @@ def main():
     
     st.title("Urban Ecology Research Trends")
     
-    st.markdown("""
-    **Interactive Dashboard for Urban Ecology Research Analysis**
+    st.header("Interactive Dashboard for Urban Ecology Research Analysis")
     
-    This dashboard allows you to explore trends in urban ecology research publications 
-    from 1970-2023. Customize your analysis by selecting keywords, adjusting year ranges, 
-    and modifying various parameters.
-    """)
+    st.subheader("This dashboard allows you to explore trends in urban ecology research publications from 1970-2023. Customize your analysis by selecting keywords, adjusting year ranges, and modifying various parameters.")
     
     df_keywords, df_countries, df_expanded, df_country_year_counts, total_unique_papers, df_totals = load_data()
     
@@ -531,6 +522,7 @@ def main():
     # SIDEBAR CONTROLS
     # ==========================================
     st.sidebar.header("Analysis Controls")
+    st.sidebar.text("(Note: you can collapse this sidebar)")
     
     available_keywords = sorted(df_keywords['search_keyword'].unique())
     keyword_options = ["Total (All Keywords)"] + available_keywords
@@ -641,7 +633,6 @@ def main():
             hover_name='country',
             hover_data={'alpha3_code': False, 'total_count': ':,'},
             color_continuous_scale='Viridis',
-            title="Global Distribution of Urban Ecology Research",
             labels={'total_count': 'Number of Papers'},
             range_color=[0, df_country_totals['total_count'].max()]
         )
@@ -649,6 +640,12 @@ def main():
         fig_choropleth.update_layout(
             template='plotly_dark',
             autosize=False,
+            title=dict(
+                text="Global Distribution of Urban Ecology Research",
+                font=dict(
+                    family="Montserrat light, Helvetica, Arial, sans-serif"
+                )
+            ),
             geo=dict(
                 showframe=False,
                 showcoastlines=True,
@@ -687,12 +684,17 @@ def main():
                             country_ts,
                             x='year',
                             y='paper_count',
-                            title=country_name,
                             labels={'year': 'Year', 'paper_count': 'Papers'}
                         )
                         fig.update_layout(
                             template='plotly_dark',
                             autosize=True,
+                            title=dict(
+                                text=country_name,
+                                font=dict(
+                                    family="Montserrat light, Helvetica, Arial, sans-serif"
+                                )
+                            ),
                             height=200,
                             margin=dict(l=10, r=10, t=20, b=0),
                             title_font_size=13,
@@ -702,13 +704,13 @@ def main():
                         st.write(f"*No data for {country_name}*")
           
         st.write('_' * 60)
-        st.subheader("Top Research-Producing Countries")
+        st.header("Top Research-Producing Countries")
             
         top_country_height = 500
         chart_col1, chart_col2 = st.columns(2)
         
         with chart_col1:
-            st.markdown("#### Country Research Output")
+            st.subheader("Country Research Output")
             
             # Root node
             labels = ["All Papers"]
@@ -746,7 +748,12 @@ def main():
             ))
 
             fig_treemap.update_layout(
-                title="Total Research Output by Country",
+                title=dict(
+                    text="Total Research Output by Country",
+                    font=dict(
+                        family="Montserrat light, Helvetica, Arial, sans-serif"
+                    )
+                ),
                 margin=dict(l=0, r=0, t=40, b=0),
                 autosize=True,
                 uniformtext_minsize=10,
@@ -756,7 +763,7 @@ def main():
             st.plotly_chart(fig_treemap, use_container_width=True, height=top_country_height, key="treemap_main")
             
         with chart_col2:
-            st.markdown("#### Output For Each Keyword")
+            st.subheader("Output For Each Keyword")
             
             original_keywords = [
                 'urban ecology', 'urban biodiversity', 'urban ecosystem',
@@ -794,7 +801,12 @@ def main():
             ))
 
             fig_keyword_output_heatmap.update_layout(
-                title='Urban Ecology Research Output: Top Countries vs Keywords',
+                title=dict(
+                    text='Urban Ecology Research Output: Top Countries vs Keywords',
+                    font=dict(
+                        family="Montserrat light, Helvetica, Arial, sans-serif"
+                    )
+                ),
                 margin=dict(l=0, r=0, t=40, b=0),
                 autosize=True,
                 xaxis_title='Keyword',
@@ -807,9 +819,9 @@ def main():
             st.plotly_chart(fig_keyword_output_heatmap, use_container_width=True, height=top_country_height)
     
                 
-        
+        st.write('_' * 60)
         st.subheader("Geographic Summary")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.metric("Countries Analyzed", len(df_countries_filtered))
@@ -834,7 +846,6 @@ def main():
             x='year', 
             y='paper_count', 
             color='search_keyword',
-            title=f"Research Publications Over Time ({min_year}-{max_year})",
             labels={
                 'year': 'Year',
                 'paper_count': 'Number of Papers',
@@ -845,12 +856,20 @@ def main():
         fig_time.update_layout(
             template='plotly_dark',
             autosize=True,
+            title=dict(
+                text=f"Research Publications Over Time ({min_year}-{max_year})",
+                font=dict(
+                    family="Montserrat light, Helvetica, Arial, sans-serif"
+                )
+            ),
             hovermode='x unified',
             margin=dict(l=20, r=20, t=50, b=20)
         )
         
         display_chart_control(fig_time, "time_series")
         
+        st.write('_' * 60)
+        st.subheader("Time Series Summary")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -954,7 +973,12 @@ def main():
                 ))
                 
                 fig_rsquared.update_layout(
-                    title="Model Fit Comparison (R² values)",
+                    title=dict(
+                        text="Model Fit Comparison (R² values)",
+                        font=dict(
+                            family="Montserrat light, Helvetica, Arial, sans-serif"
+                        )
+                    ),
                     xaxis_title="Keywords",
                     yaxis_title="R² Score",
                     template='plotly_dark',
@@ -1017,7 +1041,12 @@ def main():
                     ))
                     
                     fig_growth.update_layout(
-                        title="Growth Rates by Best-Fit Model<br><sub>Bar color according to best fit model</sub>",
+                        title=dict(
+                            text="Growth Rates by Best-Fit Model<br><sub>Bar color according to best fit model</sub>",
+                            font=dict(
+                                family="Montserrat light, Helvetica, Arial, sans-serif"
+                            )
+                        ),
                         xaxis_title="Keywords",
                         template='plotly_dark',
                         autosize=True,
@@ -1032,7 +1061,12 @@ def main():
                             griddash='dot'
                         ),
                         yaxis2=dict(
-                            title="Exponential Growth Rate (%/year)",
+                            title=dict(
+                                text="Exponential Growth Rate (%/year)",
+                                font=dict(
+                                    family="Montserrat light, Helvetica, Arial, sans-serif"
+                                )
+                            ),
                             title_font=dict(color=EXPONENTIAL_COLOR),
                             tickfont=dict(color=EXPONENTIAL_COLOR),
                             overlaying="y",
@@ -1103,7 +1137,12 @@ def main():
                     ))
                     
                     fig_models.update_layout(
-                        title=f"Growth Models Comparison: {selected_keyword_viz}",
+                        title=dict(
+                            text=f"Growth Models Comparison: {selected_keyword_viz}",
+                            font=dict(
+                                family="Montserrat light, Helvetica, Arial, sans-serif"
+                            )
+                        ),
                         xaxis_title="Year",
                         yaxis_title="Number of Papers",
                         template='plotly_dark',
