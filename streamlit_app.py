@@ -703,6 +703,7 @@ def main():
                     else:
                         st.write(f"*No data for {country_name}*")
           
+
         st.write('_' * 60)
         st.header("Top Research-Producing Countries")
             
