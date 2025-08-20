@@ -522,7 +522,7 @@ def main():
     # SIDEBAR CONTROLS
     # ==========================================
     st.sidebar.header("Analysis Controls")
-    st.sidebar.text("(Note: you can collapse this sidebar)")
+    st.sidebar.text("(Note: you can collapse this sidebar with the arrow at the top)")
     
     available_keywords = sorted(df_keywords['search_keyword'].unique())
     keyword_options = ["Total (All Keywords)"] + available_keywords
