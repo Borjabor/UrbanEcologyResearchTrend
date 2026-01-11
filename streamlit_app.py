@@ -4,7 +4,7 @@ Urban Ecology Research Trends - Interactive Dashboard
 This Streamlit app provides an interactive interface to explore urban ecology research trends based on data from OpenAlex API. Users can customize keyword selections, year ranges, and 
 other parameters to generate dynamic visualizations.
 
-Author: Your Name
+Author: Andre Borja Miranda
 """
 
 import streamlit as st
