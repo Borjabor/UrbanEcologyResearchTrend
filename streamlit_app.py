@@ -167,7 +167,7 @@ def get_country_name(alpha3_code):
     except (KeyError, AttributeError):
         return alpha3_code
 
-@st.cache_data(ttl=2592000)
+@st.cache_data(ttl=2592000) #One month data caching
 def load_data():
     """
     Load data from Supabase using pagination to get all records.
