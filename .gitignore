@@ -205,3 +205,5 @@ __marimo__/
 *.txt
 !requirements.txt
 *.db
+
+GEMINI.md

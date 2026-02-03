@@ -157,7 +157,6 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
     return all_papers
 
 @st.cache_data(ttl=3600, show_spinner=False)
-
 def get_country_name(alpha3_code):
     """
     Convert alpha-3 country codes to full country names using pycountry.
@@ -168,6 +167,7 @@ def get_country_name(alpha3_code):
     except (KeyError, AttributeError):
         return alpha3_code
 
+@st.cache_data(ttl=2592000)
 def load_data():
     """
     Load data from Supabase using pagination to get all records.
@@ -523,6 +523,9 @@ def main():
     # ==========================================
     st.sidebar.header("Analysis Controls")
     st.sidebar.text("(Note: you can collapse this sidebar with the arrow at the top)")
+    
+    # if st.sidebar.button("Clear Cache"):
+    #    st.cache_data.clear()
     
     available_keywords = sorted(df_keywords['search_keyword'].unique())
     keyword_options = ["Total (All Keywords)"] + available_keywords
