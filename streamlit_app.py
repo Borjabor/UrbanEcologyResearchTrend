@@ -20,7 +20,11 @@ from supabase import create_client, Client
 
 load_dotenv()
 
-@st.cache_resource
+ORIGIAL_KEYWORDS = [
+                'urban ecology', 'urban biodiversity', 'urban ecosystem',
+                'urban green spaces', 'urban vegetation', 'urban wildlife'
+            ]
+
 def get_supabase_client():
     """
     Initialize Supabase client using environment variables or Streamlit secrets.
@@ -50,6 +54,8 @@ def get_supabase_client():
         st.error(f"Failed to connect to database: {str(e)}")
         st.stop()
 
+
+supabase: Client = get_supabase_client()
 
 st.set_page_config(
     page_title="Urban Ecology Research Trends",
@@ -113,7 +119,7 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
             start = page * page_size
             end = start + page_size - 1
             
-            query = get_supabase_client().table('papers').select(columns).range(start, end)
+            query = supabase.table('papers').select(columns).range(start, end)
             
             if filters:
                 for filter_func in filters:
@@ -234,16 +240,13 @@ def load_data():
             with status_placeholder:
                 st.info("Loading detailed paper data...")
             
-            original_keywords = [
-                'urban ecology', 'urban biodiversity', 'urban ecosystem',
-                'urban green spaces', 'urban vegetation', 'urban wildlife'
-            ]
+            
             
             expanded_data = []
             for _, row in df_all.iterrows():
                 keywords_in_paper = [kw.strip() for kw in row['search_keyword'].split(',')]
                 for keyword in keywords_in_paper:
-                    if keyword in original_keywords:
+                    if keyword in ORIGIAL_KEYWORDS:
                         expanded_data.append({
                             'paperId': row['paperId'],
                             'year': row['year'],
@@ -766,11 +769,7 @@ def main():
         with chart_col2:
             st.subheader("Output For Each Keyword")
             
-            original_keywords = [
-                'urban ecology', 'urban biodiversity', 'urban ecosystem',
-                'urban green spaces', 'urban vegetation', 'urban wildlife'
-            ]
-            heatmap_keywords = active_geo_keywords if (active_geo_keywords and not use_all_keywords) else original_keywords
+            heatmap_keywords = active_geo_keywords if (active_geo_keywords and not use_all_keywords) else ORIGIAL_KEYWORDS
 
             df_countries_exploded = df_countries_geo.copy()
 
