@@ -20,6 +20,7 @@ from supabase import create_client, Client
 
 load_dotenv()
 
+@st.cache_resource
 def get_supabase_client():
     """
     Initialize Supabase client using environment variables or Streamlit secrets.
@@ -49,8 +50,6 @@ def get_supabase_client():
         st.error(f"Failed to connect to database: {str(e)}")
         st.stop()
 
-
-supabase: Client = get_supabase_client()
 
 st.set_page_config(
     page_title="Urban Ecology Research Trends",
@@ -114,7 +113,7 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
             start = page * page_size
             end = start + page_size - 1
             
-            query = supabase.table('papers').select(columns).range(start, end)
+            query = get_supabase_client().table('papers').select(columns).range(start, end)
             
             if filters:
                 for filter_func in filters:
@@ -293,19 +292,6 @@ def load_data():
         except Exception as e:
             st.error(f"Error loading data from Supabase: {e}")
             return None, None, None, None, 0, None
-
-def get_actual_keywords(selected_keywords):
-    """
-    Convert display keywords to actual keywords used in the DataFrame.
-    """
-    actual_keywords = []
-    for keyword in selected_keywords:
-        if keyword == "Total (All Keywords)":
-            actual_keywords.append("Total (All Keywords)")
-        else:
-            actual_keywords.append(keyword)
-    return actual_keywords
-
 
 def linear_trend_analysis(df):
     """
@@ -602,27 +588,38 @@ def main():
             
         left_col, right_col = st.columns([4, 1])
         
+        # Apply sidebar filters to geographic data
+        active_geo_keywords = [kw for kw in selected_keywords if kw != "Total (All Keywords)"]
+        use_all_keywords = "Total (All Keywords)" in selected_keywords
+
+        df_countries_geo = df_countries[
+            (df_countries['year'] >= min_year) &
+            (df_countries['year'] <= max_year)
+        ].copy()
+
+        if not use_all_keywords and active_geo_keywords:
+            mask = df_countries_geo['search_keyword'].apply(
+                lambda x: any(kw in [k.strip() for k in x.split(',')] for kw in active_geo_keywords)
+            )
+            df_countries_geo = df_countries_geo[mask]
+
         df_country_totals = (
-            df_country_year_counts.groupby(['country', 'alpha3_code'])['paper_count']
-            .sum()
+            df_countries_geo
+            .groupby(['country', 'alpha3_code'])
+            .agg(total_count=('paperId', 'nunique'))
             .reset_index()
-            .rename(columns={'paper_count': 'total_count'})
         )
-        
+
         df_countries_filtered = (
-            df_countries
+            df_countries_geo
             .groupby(['country', 'alpha3_code', 'year'])
             .agg(paper_count=('paperId', 'nunique'))
             .reset_index()
         )
-        
-        
-        df_top_country_totals = df_country_totals.copy()
-        df_top_country_totals = df_top_country_totals.sort_values('total_count', ascending=False).head(top_n_countries)
-        
+
+        df_top_country_totals = df_country_totals.sort_values('total_count', ascending=False).head(top_n_countries)
         top_countries = df_top_country_totals['country'].tolist()
-        df_counts_filtered = df_country_year_counts[df_country_year_counts['country'].isin(top_countries)]
-        
+
         df_countries_filtered = df_countries_filtered[df_countries_filtered['country'].isin(top_countries)]
         df_countries_filtered['country'] = pd.Categorical(df_countries_filtered['country'], categories=top_countries, ordered=True)
         df_countries_filtered = df_countries_filtered.sort_values(['country', 'year']).reset_index(drop=True)
@@ -773,9 +770,10 @@ def main():
                 'urban ecology', 'urban biodiversity', 'urban ecosystem',
                 'urban green spaces', 'urban vegetation', 'urban wildlife'
             ]
-            
-            df_countries_exploded = df_countries.copy()
-            
+            heatmap_keywords = active_geo_keywords if (active_geo_keywords and not use_all_keywords) else original_keywords
+
+            df_countries_exploded = df_countries_geo.copy()
+
             df_countries_exploded['keywords'] = df_countries_exploded['search_keyword'].str.split(',')
             df_countries_exploded = df_countries_exploded.explode('keywords')
             df_countries_exploded['keywords'] = df_countries_exploded['keywords'].str.strip()
@@ -786,10 +784,9 @@ def main():
                 .agg(paper_count=('paperId', 'nunique'))
                 .reset_index()
             )
-            
-            
+
             heatmap_data = (
-                df_counts_keywords[df_counts_keywords['country'].isin(top_countries) & df_counts_keywords['keywords'].isin(original_keywords)]
+                df_counts_keywords[df_counts_keywords['country'].isin(top_countries) & df_counts_keywords['keywords'].isin(heatmap_keywords)]
                 .pivot(index='country', columns='keywords', values='paper_count')
                 .fillna(0)
             )

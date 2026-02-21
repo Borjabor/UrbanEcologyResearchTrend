@@ -31,7 +31,7 @@ Papers table:
 | `authors`        | TEXT    | Comma-separated list of author IDs |
 | `url`            | TEXT    |                          |
 | `search_keyword` | TEXT    | Comma-separated list of keywords |
-| `firstAuthorCountryIso` |  TEXT | alpha-2 ISO country code |
+| `firstAuthorCountryIso` |  TEXT | alpha-3 ISO country code |
 | `firstAuthorId`  | TEXT    | Foreign Key connects to Authors table |
 | `journal`        | TEXT    |                                    |
 | `citationCount`  | INTEGER |                          |
