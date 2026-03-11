@@ -26,8 +26,9 @@
 
 ### Code Quality
 
-**`original_keywords` is defined in two places.**
-Lines 238–241 and 772–775 both define the same list. This should be a single module-level constant (e.g., `URBAN_KEYWORDS = [...]`) to avoid the lists drifting out of sync.
+~~**`original_keywords` is defined in two places.**~~
+~~Lines 238–241 and 772–775 both define the same list. This should be a single module-level constant (e.g., `URBAN_KEYWORDS = [...]`) to avoid the lists drifting out of sync.~~
+✅ Fixed (2026-02-21): Consolidated into a single module-level constant `URBAN_KEYWORDS`.
 
 ~~**`supabase` client is instantiated at module level before `st.set_page_config`.**~~
 ~~Streamlit's docs require `set_page_config` to be the first Streamlit call. The module-level `supabase = get_supabase_client()` runs first and may call `st.error()` / `st.stop()` before page config is set, which will raise a Streamlit error. The client should be initialized inside `main()` or lazy-initialized the first time it's needed.~~
@@ -36,24 +37,29 @@ Lines 238–241 and 772–775 both define the same list. This should be a single
 **`load_data()` has UI side-effects inside a cached function.**
 `@st.cache_data` caches the return value, but `load_data()` also creates progress bars and `st.empty()` placeholders. On a cache hit the function body doesn't run at all, so there are no orphaned UI elements. On a cache miss, the placeholders are explicitly cleared at the end of the function, which mitigates the multi-user overlap concern. The main residual issue is that the function is harder to test or reuse outside a Streamlit context.
 
-**`display_chart_control` is called inside an existing column context.**
-The regression tab creates a two-column layout (`col1, col2`), then calls `display_chart_control` inside each column, which itself calls `st.columns`. Note: Streamlit added nested column support in v1.31 (January 2024), so this may work correctly on recent versions. If the deployed environment is on an older version, this would silently produce broken layouts.
+~~**`display_chart_control` is called inside an existing column context.**~~
+~~The regression tab creates a two-column layout (`col1, col2`), then calls `display_chart_control` inside each column, which itself calls `st.columns`. Note: Streamlit added nested column support in v1.31 (January 2024), so this may work correctly on recent versions. If the deployed environment is on an older version, this would silently produce broken layouts.~~
+✅ Fixed (2026-02-21): `display_chart_control` no longer creates its own column layout. It now just sets chart height by type and calls `st.plotly_chart(use_container_width=True)` directly, relying on the natural container — full page at top level, enclosing column width when called inside `st.columns`.
 
-**Hardcoded magic values.**
-- `estimated_total = 66000` (line 132): hardcoded estimate used for the progress bar. Should at least be a named constant.
-- Year range `(1970, 2023)` is hardcoded in the slider (line 544). Ideally this would be derived from the actual data min/max year.
-- `page > 25` safety limit (line 142) is also a hardcoded guard with no documentation of why 25.
+~~**Hardcoded magic values.**~~
+- ~~`estimated_total = 66000` (line 132): hardcoded estimate used for the progress bar.~~
+  ✅ Fixed (2026-02-21): A lightweight `count='exact'` HEAD query is now run before pagination starts. The real paper count is passed into `get_all_papers_paginated` and used for an accurate progress bar, replacing the hardcoded estimate.
+- Year range `(1970, 2023)` is hardcoded in the slider. Intentionally kept — the dataset covers a fixed historical period.
+- ~~`page > 25` safety limit: hardcoded guard with no documented basis in Supabase/PostgREST.~~
+  ✅ Fixed (2026-02-21): The page limit is now derived dynamically from `math.ceil(total_count / page_size)`. A fallback constant is used only if the count query fails, with a comment noting it is arbitrary.
 
-**Commented-out code (lines 527–528).**
+**Commented-out code.**
 The "Clear Cache" button is commented out. Either restore it (it's a useful debug tool) or remove the comment.
 
 ### Statistical / Analytical
 
-**`log(y + 1)` transformation introduces bias for small counts.**
-`log_trend_analysis()` adds 1 before taking the log (line 389) to avoid `log(0)`. For years with very few papers (e.g., 1970–1980), this +1 offset meaningfully distorts the regression slope upward. A cleaner approach is to exclude years with zero papers from the log regression, or to use a weighted regression that down-weights sparse early years.
+~~**`log(y + 1)` transformation introduces bias for small counts.**~~
+~~`log_trend_analysis()` adds 1 before taking the log to avoid `log(0)`. For years with very few papers (e.g., 1970–1980), this +1 offset meaningfully distorts the regression slope upward.~~
+✅ Fixed (2026-02-21): Years with zero paper count are now excluded from the log regression before fitting. `np.log(paper_counts)` is used directly with no `+1` offset. The `len < 3` guard is re-checked after filtering to ensure a valid regression is still possible.
 
-**Keyword double-counting is not disclosed to users.**
-Papers with multiple keywords (e.g., tagged `urban ecology, urban biodiversity`) are counted once toward each keyword. This means selecting all keywords individually produces a higher total than "Total (All Keywords)". The app doesn't explain this, and the "Time Series Summary" total papers metric behaves differently depending on whether "Total" is in the selection (lines 880–913). A note in the UI would prevent misinterpretation.
+~~**Keyword double-counting in the "Total (All Keywords)" time series line.**~~
+~~Papers with multiple keywords are counted once per keyword, making the sum across individual keyword lines higher than the true paper count. The "Total (All Keywords)" line was susceptible to the same double-counting depending on how `search_keyword` was stored.~~
+✅ Fixed (2026-02-21): `df_totals` is now computed via `df_all.groupby('year').agg(paper_count=('paperId', 'nunique'))` — counting distinct paper IDs per year directly. This guarantees a paper with multiple keywords is counted exactly once in the Total line regardless of how keywords are stored in the database.
 
 ### Missing Features / Gaps
 
@@ -63,5 +69,5 @@ The Jupyter notebook contains keyword co-occurrence/similarity analysis and the 
 **No data freshness indicator.**
 Data is cached for a month, but users have no way to know when it was last loaded. A simple "Data last refreshed: X" line using `st.session_state` or a timestamp stored alongside the cached data would address this.
 
-**The Authors table is loaded but never used.**
-The database schema includes an Authors table with institution and country data, but the app only queries the Papers table. The `firstAuthorId` foreign key and the richer geographic data from the Authors table (`country_name`, `last_known_institution_name`) go unused. Joining to Authors could fill in country data for papers where `firstAuthorCountryIso` is null, reducing geographic data gaps.
+~~**The Authors table is loaded but never used.**~~
+Not applicable. The app never queries the Authors table — this item was incorrect. The Authors table exists solely as a one-time enrichment pipeline in the notebook: it collected institution data from OpenAlex, resolved country codes via the ROR API, and wrote the results back into `papers.firstAuthorCountryIso`. The Streamlit app reads that already-enriched column directly from the Papers table. Nothing is being loaded superfluously.

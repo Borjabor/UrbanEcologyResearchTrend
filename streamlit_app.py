@@ -10,6 +10,7 @@ Author: Andre Borja Miranda
 import streamlit as st
 import pandas as pd
 import numpy as np
+import math
 import plotly.express as px
 import plotly.graph_objects as go
 import scipy.stats as stats
@@ -100,11 +101,11 @@ load_css()
 # HELPER FUNCTIONS
 # ==========================================
 
-def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progress=True, progress_placeholder=None):
+def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progress=True, progress_placeholder=None, total_count=None):
     """Get all papers using optimized pagination to bypass max rows limit."""
     all_papers = []
     page = 0
-    
+
     if show_progress:
         if progress_placeholder:
             progress_bar = progress_placeholder.progress(0)
@@ -113,41 +114,43 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
             progress_bar = st.progress(0)
             status_text = st.empty()
         status_text.text("Loading data...")
-    
+
     while True:
         try:
             start = page * page_size
             end = start + page_size - 1
-            
-            query = supabase.table('papers').select(columns).range(start, end)
-            
+
+            query = get_supabase_client().table('papers').select(columns).range(start, end)
+
             if filters:
                 for filter_func in filters:
                     query = filter_func(query)
-            
+
             result = query.execute()
             page_data = result.data
-            
+
             if not page_data:
                 break
-                
+
             all_papers.extend(page_data)
-            
-            if show_progress:
-                estimated_total = 66000
-                current_progress = min(len(all_papers) / estimated_total, 1.0)
+
+            if show_progress and total_count:
+                current_progress = min(len(all_papers) / total_count, 1.0)
                 progress_bar.progress(current_progress)
-                status_text.text(f"Loaded {len(all_papers):,} papers...")
-            
+                status_text.text(f"Loaded {len(all_papers):,} of {total_count:,} papers...")
+
             if len(page_data) < page_size:
                 break
-                
+
             page += 1
-            
-            if page > 25:
-                st.warning("Stopped pagination at 25 pages for safety")
+
+            # Derive max pages from total_count when available; the fallback
+            # value is arbitrary — no documented limit exists in Supabase/PostgREST.
+            max_pages = math.ceil(total_count / page_size) if total_count else 50
+            if page >= max_pages:
+                st.warning("Reached maximum page limit — some records may be missing.")
                 break
-                
+
         except Exception as e:
             st.error(f"Error on page {page + 1}: {e}")
             break
@@ -193,13 +196,24 @@ def load_data():
                 lambda q: q.not_.is_('search_keyword', 'null'),
                 lambda q: q.neq('search_keyword', '')
             ]
-            
+
+            count_result = (
+                get_supabase_client()
+                .table('papers')
+                .select('*', count='exact', head=True)
+                .not_.is_('search_keyword', 'null')
+                .neq('search_keyword', '')
+                .execute()
+            )
+            total_count = count_result.count
+
             with status_placeholder:
-                st.info("Loading papers data (this may take a few seconds)...")
-            
+                st.info(f"Loading {total_count:,} papers (this may take a few seconds)...")
+
             all_papers_data = get_all_papers_paginated(
                 'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount',
                 filters=filters,
+                total_count=total_count,
                 page_size=5000,
                 show_progress=True,
                 progress_placeholder=progress_placeholder
@@ -209,31 +223,30 @@ def load_data():
             
             df_raw = df_all.groupby(['year', 'search_keyword']).size().reset_index()
             df_raw.columns = ['year', 'search_keyword', 'paper_count']
-        
+
             rows = []
-            total_rows = []
-            
+
             for _, row in df_raw.iterrows():
                 keywords = [k.strip() for k in row['search_keyword'].split(',')]
-                
-                total_rows.append({
-                    'year': row['year'], 
-                    'search_keyword': 'total', 
-                    'paper_count': row['paper_count']
-                })
-                
                 for keyword in keywords:
                     if keyword:
                         rows.append({
-                            'year': row['year'], 
-                            'search_keyword': keyword, 
+                            'year': row['year'],
+                            'search_keyword': keyword,
                             'paper_count': row['paper_count']
                         })
-            
+
             df_keywords = pd.DataFrame(rows).groupby(['year', 'search_keyword'])['paper_count'].sum().reset_index()
-            df_totals = pd.DataFrame(total_rows).groupby(['year', 'search_keyword'])['paper_count'].sum().reset_index()
-            
-            df_totals['search_keyword'] = df_totals['search_keyword'].replace('total', 'Total (All Keywords)')
+
+            # Count unique papers per year directly so multi-keyword papers are
+            # never double-counted in the Total line regardless of how
+            # search_keyword is stored in the database.
+            df_totals = (
+                df_all.groupby('year')
+                .agg(paper_count=('paperId', 'nunique'))
+                .reset_index()
+            )
+            df_totals['search_keyword'] = 'Total (All Keywords)'
             
             df_keywords_combined = pd.concat([df_keywords, df_totals], ignore_index=True)
             
@@ -372,10 +385,15 @@ def log_trend_analysis(df, min_papers=1):
         if keyword_data['paper_count'].sum() < min_papers or len(keyword_data) < 3:
             continue
         
+        keyword_data = keyword_data[keyword_data['paper_count'] > 0]
+
+        if len(keyword_data) < 3:
+            continue
+
         years = keyword_data['year'].values
         paper_counts = keyword_data['paper_count'].values
-        
-        log_counts = np.log(paper_counts + 1)
+
+        log_counts = np.log(paper_counts)
         
         slope, intercept, r_value, p_value, std_err = stats.linregress(years, log_counts)
         
@@ -443,39 +461,31 @@ def compare_linear_vs_exponential(df, min_papers=1):
 
 def display_chart_control(fig, chart_type="default"):
     """
-    Display chart with responsive width control using native Streamlit columns.
-    Uses very small margins that become negligible on mobile devices.
+    Display chart with height scaling by type. Uses use_container_width=True
+    so the chart fills its natural container — full page at top level, or the
+    enclosing column width when called inside a st.columns context.
     """
     BASE_HEIGHT = 800
-    
-    if chart_type in ["map", "choropleth"]:
-        col_ratios = [0.05, 0.90, 0.05]
-        final_height = int(BASE_HEIGHT * 0.8)
-    elif chart_type in ["time_series"]:
-        col_ratios = [0.05, 0.90, 0.05]
-        final_height = int(BASE_HEIGHT)
-    elif chart_type in ["top_countries"]:
-        col_ratios = [0.05, 0.90, 0.05]
-        final_height = int(BASE_HEIGHT * 0.65)
-    else:
-        col_ratios = [0.075, 0.85, 0.075]
-        final_height = BASE_HEIGHT
-    
-    col1, col2, col3 = st.columns(col_ratios)
-    
+
+    heights = {
+        "map":          int(BASE_HEIGHT * 0.8),
+        "choropleth":   int(BASE_HEIGHT * 0.8),
+        "time_series":  BASE_HEIGHT,
+        "top_countries": int(BASE_HEIGHT * 0.65),
+    }
+    final_height = heights.get(chart_type, BASE_HEIGHT)
+
     fig.update_layout(
         height=final_height,
         autosize=False,
         margin=dict(l=40, r=40, t=60, b=40)
     )
-    
-    with col2:
-        st.plotly_chart(
-            fig, 
-            use_container_width=True,
-            height=final_height,
-            config={'responsive': False, 'displayModeBar': False}
-        )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={'displayModeBar': False}
+    )
 
 
 # ==========================================
