@@ -501,7 +501,7 @@ def main():
     
     st.header("Interactive Dashboard for Urban Ecology Research Analysis")
     
-    st.subheader("This dashboard allows you to explore trends in urban ecology research publications from 1970-2023. Customize your analysis by selecting keywords, adjusting year ranges, and modifying various parameters.")
+    st.subheader("This dashboard allows you to explore trends in urban ecology research publications from 1970-2023. Customize your analysis by selecting keywords, and adjusting year ranges.")
     
     df_keywords, df_countries, df_expanded, df_country_year_counts, total_unique_papers, df_totals = load_data()
     
