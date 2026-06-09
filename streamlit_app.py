@@ -21,42 +21,35 @@ from supabase import create_client, Client
 
 load_dotenv()
 
-ORIGIAL_KEYWORDS = [
+URBAN_KEYWORDS = [
                 'urban ecology', 'urban biodiversity', 'urban ecosystem',
                 'urban green spaces', 'urban vegetation', 'urban wildlife'
             ]
 
-def get_supabase_client():
+@st.cache_resource
+def get_supabase_client() -> Client:
     """
-    Initialize Supabase client using environment variables or Streamlit secrets.
+    Initialize and cache the Supabase client (one instance per session).
+    Credentials come from environment variables (local) with a fallback to
+    Streamlit secrets (deployed).
     """
-    try:
-        url = None
-        key = None
-        
-        url = os.getenv("DB_URL")
-        key = os.getenv("DB_KEY")
-        
-        if not url or not key:
-            try:
-                if hasattr(st, 'secrets') and 'DB_URL' in st.secrets:
-                    url = st.secrets["DB_URL"]
-                    key = st.secrets["DB_KEY"]
-            except Exception:
-                pass
-        
-        if not url or not key:
-            st.error("Database credentials not found. Please check your .env file or Streamlit secrets.")
-            st.stop()
-        
-        return create_client(url, key)
-    
-    except Exception as e:
-        st.error(f"Failed to connect to database: {str(e)}")
+    url = os.getenv("DB_URL")
+    key = os.getenv("DB_KEY")
+
+    if not url or not key:
+        try:
+            if hasattr(st, 'secrets') and 'DB_URL' in st.secrets:
+                url = st.secrets["DB_URL"]
+                key = st.secrets["DB_KEY"]
+        except Exception:
+            pass
+
+    if not url or not key:
+        st.error("Database credentials not found. Please check your .env file or Streamlit secrets.")
         st.stop()
 
+    return create_client(url, key)
 
-supabase: Client = get_supabase_client()
 
 st.set_page_config(
     page_title="Urban Ecology Research Trends",
@@ -259,7 +252,7 @@ def load_data():
             for _, row in df_all.iterrows():
                 keywords_in_paper = [kw.strip() for kw in row['search_keyword'].split(',')]
                 for keyword in keywords_in_paper:
-                    if keyword in ORIGIAL_KEYWORDS:
+                    if keyword in URBAN_KEYWORDS:
                         expanded_data.append({
                             'paperId': row['paperId'],
                             'year': row['year'],
@@ -501,7 +494,7 @@ def main():
     
     st.header("Interactive Dashboard for Urban Ecology Research Analysis")
     
-    st.subheader("This dashboard allows you to explore trends in urban ecology research publications from 1970-2023. Customize your analysis by selecting keywords, adjusting year ranges, and modifying various parameters.")
+    st.subheader("This dashboard allows you to explore trends in urban ecology research publications from 1970-2023. Customize your analysis by selecting keywords, and adjusting year ranges.")
     
     df_keywords, df_countries, df_expanded, df_country_year_counts, total_unique_papers, df_totals = load_data()
     
@@ -522,10 +515,7 @@ def main():
     # ==========================================
     st.sidebar.header("Analysis Controls")
     st.sidebar.text("(Note: you can collapse this sidebar with the arrow at the top)")
-    
-    # if st.sidebar.button("Clear Cache"):
-    #    st.cache_data.clear()
-    
+
     available_keywords = sorted(df_keywords['search_keyword'].unique())
     keyword_options = ["Total (All Keywords)"] + available_keywords
     
@@ -653,6 +643,7 @@ def main():
         fig_choropleth.update_layout(
             template='plotly_dark',
             autosize=False,
+            height=map_height,
             title=dict(
                 text="Global Distribution of Urban Ecology Research",
                 font=dict(
@@ -672,9 +663,8 @@ def main():
         
         with left_col:
             st.plotly_chart(
-                fig_choropleth, 
+                fig_choropleth,
                 use_container_width=True,
-                height=map_height,
                 config={'responsive': False, 'displayModeBar': False}
             )
             
@@ -770,16 +760,17 @@ def main():
                 ),
                 margin=dict(l=0, r=0, t=40, b=0),
                 autosize=True,
+                height=top_country_height,
                 uniformtext_minsize=10,
                 uniformtext_mode='hide'
             )
 
-            st.plotly_chart(fig_treemap, use_container_width=True, height=top_country_height, key="treemap_main")
+            st.plotly_chart(fig_treemap, use_container_width=True, key="treemap_main")
             
         with chart_col2:
             st.subheader("Output For Each Keyword")
             
-            heatmap_keywords = active_geo_keywords if (active_geo_keywords and not use_all_keywords) else ORIGIAL_KEYWORDS
+            heatmap_keywords = active_geo_keywords if (active_geo_keywords and not use_all_keywords) else URBAN_KEYWORDS
 
             df_countries_exploded = df_countries_geo.copy()
 
@@ -822,11 +813,11 @@ def main():
                 xaxis_title='Keyword',
                 yaxis_title='Country',
                 template='plotly_dark',
+                height=top_country_height,
                 font=dict(size=12)
             )
-            
-                
-            st.plotly_chart(fig_keyword_output_heatmap, use_container_width=True, height=top_country_height)
+
+            st.plotly_chart(fig_keyword_output_heatmap, use_container_width=True)
     
                 
         st.write('_' * 60)
@@ -834,7 +825,7 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("Countries Analyzed", len(df_countries_filtered))
+            st.metric("Countries Analyzed", df_countries_filtered['country'].nunique())
         
         with col2:
             st.metric("Leading Country", df_countries_filtered.iloc[0]['country'])
