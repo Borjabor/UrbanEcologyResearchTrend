@@ -53,13 +53,12 @@ Authors table:
 
 In this notebook I analysed the trend of scientific research performed within urban environments. I have chosen a few specific keywords related to Urban Ecology that I used to retrieve published papers using the OpenAlex API. I later enhanced my dataset by obtaining missing country data from the Research Organization Registry (ROR) to perform some geographical analysis.
 
-**Note: I chose a date range starting in 1970 as that is the decade when the term Urban Ecology started getting traction. Data retrieval was cutoff in 2023 as there is still data missing from OpenAlex for the year 2024.
+**Note: I chose a date range starting in 1970 as that is the decade when the term Urban Ecology started getting traction. Data retrieval was cutoff in 2025 as it is the last full year of data.
 
 ==============================================================
 ## Published Papers Time Series
 
-We'll start with a simple analysis, looking at how many papers were published every year from 1970 to present day. 
-First, we look at the full data, looking at the sum of every paper published across every keyword (the 'total' line in the graph below), then at the data per keyword. The graph below also has a 'control' dataset in the form of the 'ecology' keyword. That is, I compare the data related to research in urban environments to the scientific output on ecology as a whole.
+We'll start with a simple analysis, looking at how many papers were published every year from 1970 to present day. The graph below compares research made in an urban context (the 'Urban research' line), with production made across the rest of ecology ('General ecology' line). Later, we'll start looking at different areas of urban research, by leveraging a few specific keywords.
 
 ![Overall time series analysis](images/urban_vs_general.png)
 
