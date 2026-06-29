@@ -14,6 +14,7 @@ import math
 import plotly.express as px
 import plotly.graph_objects as go
 import scipy.stats as stats
+from scipy.optimize import curve_fit
 import pycountry
 import os
 from dotenv import load_dotenv
@@ -157,16 +158,15 @@ def get_all_papers_paginated(columns, filters=None, page_size=5000, show_progres
     
     return all_papers
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def get_country_name(alpha3_code):
     """
-    Convert alpha-3 country codes to full country names using pycountry.
+    Convert an alpha-3 country code to a full country name using pycountry.
+    Not cached: this is an in-memory O(1) lookup, so Streamlit's cache machinery
+    would cost more than it saves. pycountry.countries.get returns None (it does
+    not raise) for unknown codes, so we just fall back to the code itself.
     """
-    try:
-        country = pycountry.countries.get(alpha_3=alpha3_code)
-        return country.name if country else alpha3_code
-    except (KeyError, AttributeError):
-        return alpha3_code
+    country = pycountry.countries.get(alpha_3=alpha3_code)
+    return country.name if country else alpha3_code
 
 @st.cache_data(ttl=2592000) #One month data caching
 def load_data():
@@ -180,7 +180,7 @@ def load_data():
     status_placeholder = st.empty()
     
     with loading_placeholder:
-        st.info("Data Loading Notice: This app loads 66,000+ research papers. Initial loading may take several seconds, but subsequent interactions will be instant thanks to caching.")
+        st.info("Data Loading Notice: This app loads 140,000+ research papers. Initial loading may take several seconds, but subsequent interactions will be instant thanks to caching.")
     
     with st.spinner("Loading data from Supabase... This may take a moment."):
         try:
@@ -204,32 +204,31 @@ def load_data():
                 st.info(f"Loading {total_count:,} papers (this may take a few seconds)...")
 
             all_papers_data = get_all_papers_paginated(
-                'paperId, year, search_keyword, title, authors, firstAuthorCountryIso, citationCount',
+                'paperId, year, search_keyword, firstAuthorCountryIso',
                 filters=filters,
                 total_count=total_count,
                 page_size=5000,
                 show_progress=True,
                 progress_placeholder=progress_placeholder
             )
-            
+
             df_all = pd.DataFrame(all_papers_data)
-            
+
             df_raw = df_all.groupby(['year', 'search_keyword']).size().reset_index()
             df_raw.columns = ['year', 'search_keyword', 'paper_count']
 
-            rows = []
-
-            for _, row in df_raw.iterrows():
-                keywords = [k.strip() for k in row['search_keyword'].split(',')]
-                for keyword in keywords:
-                    if keyword:
-                        rows.append({
-                            'year': row['year'],
-                            'search_keyword': keyword,
-                            'paper_count': row['paper_count']
-                        })
-
-            df_keywords = pd.DataFrame(rows).groupby(['year', 'search_keyword'])['paper_count'].sum().reset_index()
+            # Expand comma-separated keywords (vectorized) so each keyword gets its
+            # own per-year count; multi-keyword rows contribute to each keyword.
+            df_keywords = df_raw.copy()
+            df_keywords['search_keyword'] = df_keywords['search_keyword'].str.split(',')
+            df_keywords = df_keywords.explode('search_keyword')
+            df_keywords['search_keyword'] = df_keywords['search_keyword'].str.strip()
+            df_keywords = df_keywords[df_keywords['search_keyword'] != '']
+            df_keywords = (
+                df_keywords.groupby(['year', 'search_keyword'])['paper_count']
+                .sum()
+                .reset_index()
+            )
 
             # Count unique papers per year directly so multi-keyword papers are
             # never double-counted in the Total line regardless of how
@@ -242,33 +241,6 @@ def load_data():
             df_totals['search_keyword'] = 'Total (All Keywords)'
             
             df_keywords_combined = pd.concat([df_keywords, df_totals], ignore_index=True)
-            
-            with status_placeholder:
-                st.info("Loading detailed paper data...")
-            
-            
-            
-            expanded_data = []
-            for _, row in df_all.iterrows():
-                keywords_in_paper = [kw.strip() for kw in row['search_keyword'].split(',')]
-                for keyword in keywords_in_paper:
-                    if keyword in URBAN_KEYWORDS:
-                        expanded_data.append({
-                            'paperId': row['paperId'],
-                            'year': row['year'],
-                            'search_keyword': keyword,
-                            'title': row['title'],
-                            'authors': row['authors'],
-                            'firstAuthorCountryIso': row['firstAuthorCountryIso'],
-                            'citationCount': row['citationCount']
-                        })
-            
-            df_expanded = pd.DataFrame(expanded_data)
-            
-            df_papers_with_countries = df_all[
-                (df_all['firstAuthorCountryIso'].notna()) & 
-                (df_all['firstAuthorCountryIso'] != '')
-            ]
             
             df_countries = (
                 df_all[
@@ -296,161 +268,215 @@ def load_data():
             
             total_unique_papers = len(df_all)
             
-            return df_keywords_combined, df_countries, df_expanded, df_country_year_counts, total_unique_papers, df_totals
+            return df_keywords_combined, df_countries, df_country_year_counts, total_unique_papers, df_totals
             
         except Exception as e:
             st.error(f"Error loading data from Supabase: {e}")
-            return None, None, None, None, 0, None
+            return None, None, None, 0, None
 
 def linear_trend_analysis(df):
     """
-    Perform linear regression analysis for each keyword in the dataframe
-    Returns dataframe with comprehensive statistics for each keyword.
+    Linear (OLS) regression on raw paper counts for each keyword.
+    R-squared here is in count space, directly comparable to the exponential model.
     """
     results = []
-    
+
     for keyword in df['search_keyword'].unique():
         keyword_data = df[df['search_keyword'] == keyword].sort_values('year')
-        
-        if len(keyword_data) < 3:
+        years = keyword_data['year'].values.astype(float)
+        counts = keyword_data['paper_count'].values.astype(float)
+
+        if len(years) < 3:
             continue
-        
-        years = keyword_data['year'].values
-        paper_counts = keyword_data['paper_count'].values
-        
-        slope, intercept, r_value, p_value, std_err = stats.linregress(years, paper_counts)
-        
-        r_squared = r_value**2
-        
+
+        slope, intercept, r_value, p_value, std_err = stats.linregress(years, counts)
+        r_squared = r_value ** 2
+
         n = len(years)
-        t_val = stats.t.ppf(0.975, n-2)
-        
-        s_yx = np.sqrt(np.sum((paper_counts - (slope * years + intercept))**2) / (n - 2))
-        s_xx = np.sum((years - np.mean(years))**2)
-        slope_se = s_yx / np.sqrt(s_xx)
-        
-        slope_ci_lower = slope - t_val * slope_se
-        slope_ci_upper = slope + t_val * slope_se
-        
-        is_significant = p_value < 0.05
-        
-        if is_significant:
-            if slope > 0:
-                trend_direction = "Increasing"
-                interpretation = f"Significant upward trend: +{slope:.1f} papers/year"
-            else:
-                trend_direction = "Decreasing"
-                interpretation = f"Significant downward trend: {slope:.1f} papers/year"
-        else:
-            trend_direction = "No significant trend"
-            interpretation = "No statistically significant trend detected"
-        
+        t_val = stats.t.ppf(0.975, n - 2)
+        # std_err from linregress IS the slope standard error -- no need to recompute.
+        slope_ci_lower = slope - t_val * std_err
+        slope_ci_upper = slope + t_val * std_err
+
         results.append({
             'keyword': keyword,
-            'slope': slope,
-            'slope_ci_lower': slope_ci_lower,
-            'slope_ci_upper': slope_ci_upper,
+            'slope_papers_per_year': slope,
             'intercept': intercept,
             'r_squared': r_squared,
             'p_value': p_value,
             'std_error': std_err,
-            'significant_trend': is_significant,
-            'trend_direction': trend_direction,
-            'interpretation': interpretation,
-            'total_papers': paper_counts.sum(),
+            'slope_ci_lower': slope_ci_lower,
+            'slope_ci_upper': slope_ci_upper,
+            'significant_trend': p_value < 0.05,
+            'total_papers': counts.sum(),
+            'avg_papers_per_year': counts.mean(),
             'years_analyzed': n,
-            'avg_papers_per_year': paper_counts.mean()
         })
-    
+
     return pd.DataFrame(results)
+
+
+def _exp_model(t, a, b):
+    """Exponential growth model fit in count space: y = a * exp(b * t)."""
+    return a * np.exp(b * t)
 
 
 def log_trend_analysis(df, min_papers=1):
     """
-    Perform logarithmic regression analysis for each keyword to test exponential growth
-    Returns dataframe with exponential growth statistics.
+    Exponential growth fit per keyword, estimated by NONLINEAR least squares in
+    count space (y = a * exp(b * (year - year0))). This replaces the old straight-
+    line-on-log(y) fit, which minimises relative error and once back-transformed
+    overshoots recent high-count years -- making its count-space fit look worse
+    than it is and spuriously flipping the model choice. R-squared is reported in
+    count space so it is comparable to the linear model. Equivalent log-linear
+    coefficients (log_slope, log_intercept) are returned so plotting code that
+    draws exp(log_slope*year + log_intercept) reproduces the curve.
     """
     results = []
-    
+
     for keyword in df['search_keyword'].unique():
         keyword_data = df[df['search_keyword'] == keyword].sort_values('year')
-        
-        if keyword_data['paper_count'].sum() < min_papers or len(keyword_data) < 3:
-            continue
-        
-        keyword_data = keyword_data[keyword_data['paper_count'] > 0]
+        years = keyword_data['year'].values.astype(float)
+        counts = keyword_data['paper_count'].values.astype(float)
 
-        if len(keyword_data) < 3:
+        if len(years) < 3 or counts.sum() < min_papers:
             continue
 
-        years = keyword_data['year'].values
-        paper_counts = keyword_data['paper_count'].values
+        year0 = years.min()
+        t = years - year0
 
-        log_counts = np.log(paper_counts)
-        
-        slope, intercept, r_value, p_value, std_err = stats.linregress(years, log_counts)
-        
-        r_squared = r_value**2
-        
-        annual_growth_rate = (np.exp(slope) - 1) * 100
-        
-        if slope > 0:
-            doubling_time = np.log(2) / slope
+        try:
+            popt, pcov = curve_fit(
+                _exp_model, t, counts,
+                p0=[max(counts[0], 1.0), 0.05],
+                maxfev=20000
+            )
+        except (RuntimeError, ValueError):
+            continue
+
+        a, b = popt
+        predicted = _exp_model(t, a, b)
+
+        ss_res = np.sum((counts - predicted) ** 2)
+        ss_tot = np.sum((counts - counts.mean()) ** 2)
+        r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
+
+        n = len(years)
+        b_std_err = np.sqrt(pcov[1, 1]) if np.all(np.isfinite(pcov)) else np.nan
+        if b_std_err and np.isfinite(b_std_err) and b_std_err > 0:
+            t_stat = b / b_std_err
+            p_value = 2 * stats.t.sf(np.abs(t_stat), n - 2)
+            t_val = stats.t.ppf(0.975, n - 2)
+            slope_ci_lower = b - t_val * b_std_err
+            slope_ci_upper = b + t_val * b_std_err
         else:
-            doubling_time = np.inf
-        
-        is_significant = p_value < 0.05
-        
-        if is_significant:
-            if annual_growth_rate > 0:
-                interpretation = f"Exponential growth: {annual_growth_rate:.1f}% per year"
-            else:
-                interpretation = f"Exponential decline: {annual_growth_rate:.1f}% per year"
-        else:
-            interpretation = "No significant exponential trend"
-        
+            p_value = np.nan
+            slope_ci_lower = slope_ci_upper = np.nan
+
+        annual_growth_rate = (np.exp(b) - 1) * 100
+        doubling_time = np.log(2) / b if b > 0 else np.inf
+
+        # Equivalent log-linear coefficients (see docstring).
+        log_slope = b
+        log_intercept = np.log(a) - b * year0
+
         results.append({
             'keyword': keyword,
-            'slope': slope,
-            'intercept': intercept,
+            'exp_a': a,
+            'exp_b': b,
+            'year0': year0,
+            'log_slope': log_slope,
+            'log_intercept': log_intercept,
             'r_squared': r_squared,
             'p_value': p_value,
+            'std_error': b_std_err,
+            'slope_ci_lower': slope_ci_lower,
+            'slope_ci_upper': slope_ci_upper,
             'annual_growth_rate_percent': annual_growth_rate,
             'doubling_time_years': doubling_time,
-            'significant_trend': is_significant,
-            'interpretation': interpretation,
-            'total_papers': paper_counts.sum(),
-            'years_analyzed': len(years)
+            'significant_trend': (not np.isnan(p_value)) and p_value < 0.05,
+            'total_papers': counts.sum(),
+            'avg_papers_per_year': counts.mean(),
+            'years_analyzed': n,
         })
-    
+
     return pd.DataFrame(results)
+
+
+def _aic_count_space(rss, n, k=3):
+    """Gaussian-error AICc from a count-space residual sum of squares. k = slope +
+    intercept + error variance = 3 for both models, so the base penalty is
+    identical; AICc adds the small-sample correction 2k(k+1)/(n-k-1), which
+    matters at n in the low tens."""
+    aic = n * np.log(rss / n) + 2 * k
+    if n - k - 1 > 0:
+        aic += (2 * k * (k + 1)) / (n - k - 1)
+    return aic
 
 
 def compare_linear_vs_exponential(df, min_papers=1):
     """
-    Compare linear vs exponential growth models for each keyword
-    Returns comparison dataframe with model selection results.
+    Compare linear vs exponential growth per keyword. Both models are scored in
+    COUNT space (papers/year) and the winner is chosen by AICc, so the two are
+    judged on the same ruler. |delta-AICc| < 2 means the models are statistically
+    indistinguishable (Burnham & Anderson) -- reported as a tie rather than a
+    winner crowned on noise. The old code compared a count-space R2 (linear)
+    against a log-space R2 (exponential), which is invalid and biased toward
+    'Exponential'.
     """
-    
     linear_results = linear_trend_analysis(df)
     log_results = log_trend_analysis(df, min_papers)
-    
-    if linear_results.empty and log_results.empty:
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    
-    comparison = pd.merge(linear_results[['keyword', 'r_squared', 'p_value', 'significant_trend']], 
-                         log_results[['keyword', 'r_squared', 'p_value', 'significant_trend', 'annual_growth_rate_percent', 'doubling_time_years']], 
-                         on='keyword', 
-                         suffixes=('_linear', '_log'))
-    
-    comparison['better_fit'] = np.where(comparison['r_squared_log'] > comparison['r_squared_linear'], 
-                                       'Exponential', 'Linear')
-    comparison['r_squared_difference'] = comparison['r_squared_log'] - comparison['r_squared_linear']
-    
-    comparison['model_recommendation'] = comparison.apply(lambda row: 
-        f"Use {row['better_fit']} model (ΔR² = {row['r_squared_difference']:.3f})", axis=1)
-    
-    return comparison, linear_results, log_results
+
+    if linear_results.empty or log_results.empty:
+        return pd.DataFrame(), linear_results, log_results
+
+    rows = []
+    for keyword in linear_results['keyword']:
+        lin_match = linear_results[linear_results['keyword'] == keyword]
+        exp_match = log_results[log_results['keyword'] == keyword]
+        if lin_match.empty or exp_match.empty:
+            continue
+        lin = lin_match.iloc[0]
+        exp = exp_match.iloc[0]
+
+        keyword_data = df[df['search_keyword'] == keyword].sort_values('year')
+        years = keyword_data['year'].values.astype(float)
+        counts = keyword_data['paper_count'].values.astype(float)
+        n = len(years)
+
+        pred_lin = lin['slope_papers_per_year'] * years + lin['intercept']
+        pred_exp = np.exp(exp['log_slope'] * years + exp['log_intercept'])
+
+        rss_lin = np.sum((counts - pred_lin) ** 2)
+        rss_exp = np.sum((counts - pred_exp) ** 2)
+
+        aic_lin = _aic_count_space(rss_lin, n)
+        aic_exp = _aic_count_space(rss_exp, n)
+
+        # |delta-AICc| < 2 -> statistically indistinguishable; report a tie.
+        if abs(aic_lin - aic_exp) < 2:
+            better_fit = 'Indistinguishable'
+        else:
+            better_fit = 'Exponential' if aic_exp < aic_lin else 'Linear'
+
+        rows.append({
+            'keyword': keyword,
+            'r_squared_linear': lin['r_squared'],
+            'r_squared_log': exp['r_squared'],            # count-space R2 of the exp fit
+            'r_squared_difference': exp['r_squared'] - lin['r_squared'],
+            'aic_linear': aic_lin,
+            'aic_log': aic_exp,
+            'delta_aic': aic_lin - aic_exp,               # > 0 favours exponential
+            'p_value_linear': lin['p_value'],
+            'p_value_log': exp['p_value'],
+            'significant_trend_linear': lin['significant_trend'],
+            'significant_trend_log': exp['significant_trend'],
+            'annual_growth_rate_percent': exp['annual_growth_rate_percent'],
+            'doubling_time_years': exp['doubling_time_years'],
+            'better_fit': better_fit,
+        })
+
+    return pd.DataFrame(rows), linear_results, log_results
 
 def display_chart_control(fig, chart_type="default"):
     """
@@ -494,9 +520,9 @@ def main():
     
     st.header("Interactive Dashboard for Urban Ecology Research Analysis")
     
-    st.subheader("This dashboard allows you to explore trends in urban ecology research publications from 1970-2023. Customize your analysis by selecting keywords, and adjusting year ranges.")
+    st.subheader("This dashboard allows you to explore trends in urban ecology research publications from 1970-2025. Customize your analysis by selecting keywords, and adjusting year ranges.")
     
-    df_keywords, df_countries, df_expanded, df_country_year_counts, total_unique_papers, df_totals = load_data()
+    df_keywords, df_countries, df_country_year_counts, total_unique_papers, df_totals = load_data()
     
     if df_keywords is None:
         st.error("Failed to load data from Supabase. Please check the connection and table setup.")
@@ -531,8 +557,8 @@ def main():
     min_year, max_year = st.sidebar.slider(
         "Select year range:",
         min_value=1970,
-        max_value=2023,
-        value=(1970, 2023),
+        max_value=2025,
+        value=(1970, 2025),
         help="Adjust the time period for analysis"
     )
     
@@ -715,42 +741,21 @@ def main():
         
         with chart_col1:
             st.subheader("Country Research Output")
-            
-            # Root node
-            labels = ["All Papers"]
-            ids = ["root"]
-            parents = [""]
-            values = [df_top_country_totals['total_count'].sum()]
 
-            # Country nodes
-            for _, row in df_top_country_totals.iterrows():
-                labels.append(f"{row['country']}<br>({row['total_count']:,})")
-                ids.append(f"country_{row['country']}")
-                parents.append("root")
-                values.append(row['total_count'])
-                
-            colors = [np.nan] + values[1:]
-                
-            fig_treemap = go.Figure(go.Treemap(
-                ids=ids,
-                labels=labels,
-                parents=parents,
-                values=values,
-                marker=dict(
-                    colors=colors,
-                    colorscale='Viridis',
-                    colorbar=dict(
-                        title="Number of Papers",
-                        x=1.05,
-                        len=0.8
-                    )
-                ),
-                maxdepth=2,
-                hoverinfo="skip",
-                root_color="lightgrey",
-                branchvalues="total"
-            ))
-
+            # px.treemap builds the root + country nodes and branch totals from the
+            # dataframe directly (replaces the hand-assembled ids/labels/parents lists).
+            fig_treemap = px.treemap(
+                df_top_country_totals,
+                path=[px.Constant('All Papers'), 'country'],
+                values='total_count',
+                color='total_count',
+                color_continuous_scale='Viridis',
+                labels={'total_count': 'Number of Papers'},
+            )
+            fig_treemap.update_traces(
+                texttemplate='%{label}<br>%{value:,}',
+                hovertemplate='<b>%{label}</b><br>Papers: %{value:,}<extra></extra>',
+            )
             fig_treemap.update_layout(
                 title=dict(
                     text="Total Research Output by Country",
@@ -762,7 +767,8 @@ def main():
                 autosize=True,
                 height=top_country_height,
                 uniformtext_minsize=10,
-                uniformtext_mode='hide'
+                uniformtext_mode='hide',
+                coloraxis_colorbar=dict(title="Number of Papers")
             )
 
             st.plotly_chart(fig_treemap, use_container_width=True, key="treemap_main")
@@ -871,47 +877,21 @@ def main():
         
         st.write('_' * 60)
         st.subheader("Time Series Summary")
+
+        # Filter the totals once, then read sum/mean off it (the per-column blocks
+        # used to re-derive this identical slice four times).
+        ts_summary = df_totals[(df_totals['year'] >= min_year) & (df_totals['year'] <= max_year)]
+        if "Total (All Keywords)" not in selected_keywords:
+            years_with_keywords = df_filtered['year'].unique()
+            ts_summary = ts_summary[ts_summary['year'].isin(years_with_keywords)]
+
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            if "Total (All Keywords)" in selected_keywords:
-                df_totals_filtered = df_totals[
-                    (df_totals['year'] >= min_year) & 
-                    (df_totals['year'] <= max_year)
-                ]
-                total_papers = df_totals_filtered['paper_count'].sum()
-            else:
-                years_with_keywords = df_filtered['year'].unique()
-                df_totals_for_years = df_totals[
-                    (df_totals['year'].isin(years_with_keywords)) &
-                    (df_totals['year'] >= min_year) & 
-                    (df_totals['year'] <= max_year)
-                ]
-                total_papers = df_totals_for_years['paper_count'].sum()
-            
-            st.metric("Total Papers", f"{total_papers:,}")
-        
+            st.metric("Total Papers", f"{ts_summary['paper_count'].sum():,}")
         with col2:
-            if "Total (All Keywords)" in selected_keywords:
-                df_totals_filtered = df_totals[
-                    (df_totals['year'] >= min_year) & 
-                    (df_totals['year'] <= max_year)
-                ]
-                avg_per_year = df_totals_filtered['paper_count'].mean()
-            else:
-                years_with_keywords = df_filtered['year'].unique()
-                df_totals_for_years = df_totals[
-                    (df_totals['year'].isin(years_with_keywords)) &
-                    (df_totals['year'] >= min_year) & 
-                    (df_totals['year'] <= max_year)
-                ]
-                avg_per_year = df_totals_for_years['paper_count'].mean()
-            
-            st.metric("Avg Papers/Year", f"{avg_per_year:.1f}")
-        
+            st.metric("Avg Papers/Year", f"{ts_summary['paper_count'].mean():.1f}")
         with col3:
-            years_span = max_year - min_year + 1
-            st.metric("Years Analyzed", years_span)
+            st.metric("Years Analyzed", max_year - min_year + 1)
     
     # ==========================================
     # TAB 3: REGRESSION ANALYSIS
@@ -927,9 +907,9 @@ def main():
         st.markdown("""
         **Understanding the models:**
         - **Linear Model**: Assumes constant growth (same number of papers added each year)
-        - **Exponential Model**: Assumes percentage growth (papers grow by a percentage each year)
-        - **R² Score**: Measures how well the model fits the data (1.0 = perfect fit)
-        - **Better Model**: The model with higher R² score fits the data better
+        - **Exponential Model**: Assumes percentage growth (papers grow by a percentage each year), fit by nonlinear least squares in count space
+        - **R² Score**: How well each model fits the data (1.0 = perfect fit); both are measured in count space so they are comparable
+        - **Better Model**: Chosen by AICc (lower is better). **ΔAICc > 0 favours exponential**, and **|ΔAICc| < 2** means the two models are statistically indistinguishable
         """)
         
         with st.spinner("Computing regression statistics..."):
@@ -943,9 +923,10 @@ def main():
             display_comparison['Doubling Time (years)'] = display_comparison['doubling_time_years'].round(1)
             display_comparison['Linear R²'] = display_comparison['r_squared_linear'].round(3)
             display_comparison['Exponential R²'] = display_comparison['r_squared_log'].round(3)
+            display_comparison['ΔAICc'] = display_comparison['delta_aic'].round(1)
             display_comparison['Better Model'] = display_comparison['better_fit']
-            
-            display_cols = ['keyword', 'Linear R²', 'Exponential R²', 'Better Model', 
+
+            display_cols = ['keyword', 'Linear R²', 'Exponential R²', 'ΔAICc', 'Better Model',
                           'Annual Growth Rate (%)', 'Doubling Time (years)']
             st.dataframe(
                 display_comparison[display_cols].rename(columns={'keyword': 'Keyword'}),
@@ -1010,7 +991,7 @@ def main():
                         better_model = comparison[comparison['keyword'] == keyword]['better_fit'].iloc[0]
                         
                         if better_model == "Linear":
-                            linear_rates.append(linear_data['slope'].iloc[0] if not linear_data.empty else 0)
+                            linear_rates.append(linear_data['slope_papers_per_year'].iloc[0] if not linear_data.empty else 0)
                             exponential_rates.append(None)
                         else:
                             linear_rates.append(None)
@@ -1108,8 +1089,8 @@ def main():
                     log_kw = log_results[log_results['keyword'] == selected_keyword_viz].iloc[0]
                     
                     year_range_extended = np.linspace(years.min(), years.max(), 100)
-                    linear_pred = linear_kw['slope'] * year_range_extended + linear_kw['intercept']
-                    log_pred = np.exp(log_kw['slope'] * year_range_extended + log_kw['intercept']) - 1
+                    linear_pred = linear_kw['slope_papers_per_year'] * year_range_extended + linear_kw['intercept']
+                    log_pred = np.exp(log_kw['log_slope'] * year_range_extended + log_kw['log_intercept'])
                     
                     fig_models = go.Figure()
                     
@@ -1154,36 +1135,39 @@ def main():
                     
                     display_chart_control(fig_models, "time_series")
                     
-                    better_model = "Exponential" if log_kw['r_squared'] > linear_kw['r_squared'] else "Linear"
-                    
+                    # Model choice comes from the AICc comparison (count space), not
+                    # a cross-scale R² contest. May be a tie ('Indistinguishable').
+                    comp_row = comparison[comparison['keyword'] == selected_keyword_viz].iloc[0]
+                    better_model = comp_row['better_fit']
+                    delta_aic = comp_row['delta_aic']
+
                     col1, col2 = st.columns([2, 1])
-                    
+
                     with col1:
                         if better_model == "Linear":
                             st.markdown("**Growth Model: Linear**")
-                            st.write(f"• Growth rate: {linear_kw['slope']:.2f} papers/year")
+                            st.write(f"• Growth rate: {linear_kw['slope_papers_per_year']:.2f} papers/year")
                             st.write(f"• R² score: {linear_kw['r_squared']:.3f}")
                             st.write(f"• P-value: {linear_kw['p_value']:.2e}")
                             st.write(f"• Significant: {'Yes' if linear_kw['significant_trend'] else 'No'}")
-                        else:
+                        elif better_model == "Exponential":
                             st.markdown("**Growth Model: Exponential**")
                             st.write(f"• Growth rate: {log_kw['annual_growth_rate_percent']:.1f}%/year")
                             st.write(f"• Doubling time: {log_kw['doubling_time_years']:.1f} years")
                             st.write(f"• R² score: {log_kw['r_squared']:.3f}")
                             st.write(f"• P-value: {log_kw['p_value']:.2e}")
                             st.write(f"• Significant: {'Yes' if log_kw['significant_trend'] else 'No'}")
-                    
+                        else:
+                            st.markdown("**Growth Model: Indistinguishable**")
+                            st.write(f"• Linear: {linear_kw['slope_papers_per_year']:.2f} papers/year (R²={linear_kw['r_squared']:.3f})")
+                            st.write(f"• Exponential: {log_kw['annual_growth_rate_percent']:.1f}%/year, doubling {log_kw['doubling_time_years']:.1f} yr (R²={log_kw['r_squared']:.3f})")
+                            st.write("• Both fits are statistically equivalent here")
+
                     with col2:
-                        r_squared_diff = abs(log_kw['r_squared'] - linear_kw['r_squared'])
                         st.markdown("**Model Comparison:**")
                         st.write(f"• Better model: {better_model}")
-                        st.write(f"• R² difference: {r_squared_diff:.3f}")
-                        if r_squared_diff < 0.05:
-                            st.write("• Very similar fit")
-                        elif r_squared_diff < 0.1:
-                            st.write("• Moderately better fit")
-                        else:
-                            st.write("• Much better fit")
+                        st.write(f"• ΔAICc: {delta_aic:+.1f}")
+                        st.caption("ΔAICc > 0 favours exponential; |ΔAICc| < 2 is a statistical tie.")
             
         else:
             st.warning("Not enough data points for regression analysis with current selections.")
