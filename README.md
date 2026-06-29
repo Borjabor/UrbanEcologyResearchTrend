@@ -53,47 +53,51 @@ Authors table:
 
 In this notebook I analysed the trend of scientific research performed within urban environments. I have chosen a few specific keywords related to Urban Ecology that I used to retrieve published papers using the OpenAlex API. I later enhanced my dataset by obtaining missing country data from the Research Organization Registry (ROR) to perform some geographical analysis.
 
-**Note: I chose a date range starting in 1970 as that is the decade when the term Urban Ecology started getting traction. Data retrieval was cutoff in 2023 as there is still data missing from OpenAlex for the year 2024.
+**Note: I chose a date range starting in 1970 as that is the decade when the term Urban Ecology started getting traction. Data retrieval was cutoff in 2025 as it is the last full year of data.
 
 ==============================================================
 ## Published Papers Time Series
 
-We'll start with a simple analysis, looking at how many papers were published every year from 1970 to present day. 
-First, we look at the full data, looking at the sum of every paper published across every keyword (the 'total' line in the graph below), then at the data per keyword. The graph below also has a 'control' dataset in the form of the 'ecology' keyword. That is, I compare the data related to research in urban environments to the scientific output on ecology as a whole.
+We'll start with a simple analysis, looking at how many papers were published every year from 1970 to present day. The graph below compares research made in an urban context (the 'Urban research' line), with production made across the rest of ecology ('General ecology' line). Later, we'll start looking at different areas of urban research, by leveraging a few specific keywords.
 
 ![Overall time series analysis](images/urban_vs_general.png)
 
 
-We see a clear trend, where research volume quickly grows over the years. A curious data point happens around 2020, with a sharp drop in papers published, likely linked to the COVID pandemic, with numbers quickly picking up right after, following a similar slope as before.
+We see a clear trend, where research volume quickly grows over the years, and 'general ecology' historically a lot more research papers published. That gap shrunk greatly in the past few years, especially after 2023. One possible driver could have been the COVID pandemic, that could have brought attention to metropolitan settings.
 
-That being said, the same trend can be observed for ecology as a whole. That is, scientific research is increasing in its totality, not only in urban environments. Although, looking at the latest data, urban research seems to be catching up, which could mean we might see just as many studies in cities as in more natural environments. Another possibility for that trend could be a result of the pandemic, where the scientific community started showing greater interest in urban environments post COVID, but that interest could decrease with time.
+That being said, this growth might not be sustainable long term, and perhaps general ecology might widen the gap again in the future.
 
-Although these are just guesses, and only with time we'll be able to confirm or refute either hypothesis.
+Although these are just guesses, and only with time we'll be able to confirm or refute the hypothesis.
+
+Now let's look at a breakdown in urban research. I chose a few popular keywords within the domain to get a good coverage of published papers, and avoiding too much overlap (I test this a little further)
 
 ![Per-Keyword time series analysis](images/keyword_time_series.png)
 
 
-While some keywords are clearly more popular than other, they all tend to follow a similar trend as the previous graph. That said, it is interesting to see how Urban Ecosystems and Green Spaces exploded in the 2010s, producing as much papers as the other 4 keywords.
+While all keywords follow a similar trend, we see Urban Ecology and Urban Wildlife growing a lot slower than the other keywords. That makes sense, though, since cities are notorious for having very low animal diversity, and 'urban ecology' being the general field, might not be referenced by name as the other keywords.
+The other interesting finding is the popularity of Urban Ecosystem over the others, with the gap widening even further after 2015.
 
 
 ==============================================================
 ## Analyzing Keyword Relationship
 
-Before anything else, I'll look into relationships between keywords, looking into whether they tend to appear together often. This should tell me if the choice of keywords was effective in covering a large portion of urban-related studies or if the overlap between any pair is too great, making them redundant.
+Before moving on, I'll look into relationships between keywords, analyzing whether they tend to appear together often. This should tell me if the choice of keywords was effective in covering a large portion of urban-related studies or if the overlap between any pair is too great, making them redundant.
 
 Let's begin by analyzing the overall data, of all papers collected.
 
 ![Keyword similarity matrix](images/keyword_relationship.png)
 
 
-We can see the keywords have relatively low similarity, meaning they do occur together occasionally, but mostly cover their own fields. This means my choice of keywords was an effective one, as they indicate we were able to cover more ground, so to speak, in obtaining papers representative of studies performed within an urban context.
+We can see the keywords have relatively low similarity, that is, they occur together only occasionally, meaning they mostly cover their own fields. This means my choice of keywords does indeed avoid too much overlap between papers
 
 Next, I looked into temporal data, seeing how the relationships changed over time. Since initial data was sparse, which can cause some issues with the similarity calculation, I went with 5-year intervals. That is, I grouped all of the data every 5 years before I performed the relationship analysis.
 
 ![Temporal keyword pair similarity](images/keyword_relationship_over_time.png)
 
 
-A similar picture to our matrix above showed up here with the data over time. Relatioships didn't change much over time, with the one interesting case being the urban biodiversity X urban ecosystem case, which could mean a trend of shared research over time, though the value still isn't high enough to draw any conslusion.
+A similar picture to our matrix above showed up here with the data over time. Relatioships didn't change much over time, but there are two interesting datapoints:
+- We see urban ecology and biodiversity share over 40% of papers between 2005 and 2009, but then dropping down again after 2015.
+- Urban biodiversity and Urban ecosystem seem to be slowly convergingm with similarity increasing over time until 2025.
 
 
 ===================================================================
@@ -106,9 +110,9 @@ We'll start by performing linear regression analysis on our data. We'll test to 
 Results:
 | Data | LINEAR MODEL | EXPONENTIAL MODEL |
 | -----|--------------|-------------------|
-| ` Annual Growth rate` | 93.87 new papers | 11.2% more papers |
-| `9156` | 0.6442 | 0.9567 |
-| `P-value` | 2.91e-13 | 4.04e-37 |
+| ` Annual Growth rate` | 195.83 new papers | 12.8% more papers |
+| `R²` | 0.6183 | 0.9725 |
+| `P-value` | 6.91e-13 | 2.88e-32 |
 
 ![Regression analysis](images/urban_linear_vs_exponential.png)
 
@@ -116,10 +120,10 @@ Results:
             =   =   =   =   =   =   =   =
 KEY INSIGHTS - TOTAL URBAN ECOLOGY PAPERS GROWTH ANALYSIS:
 
-- The field shows EXPONENTIAL growth with 11.2% annual growth rate
-- Research output doubles every 6.5 years
-- Exponential model explains 95.7% of variance
-- High growth rate (11.2%/year) may not be sustainable long-term
+- The field shows EXPONENTIAL growth with 12.8% annual growth rate
+- Research output doubles every 5.7 years
+- Exponential model explains 97.3% of variance
+- High growth rate may not be sustainable long-term
 
 
 ### Urban Ecology vs General Ecology: Exponential Growth Comparison
@@ -132,10 +136,10 @@ EXPONENTIAL GROWTH COMPARISON: URBAN ECOLOGY vs GENERAL ECOLOGY:
 
 | Data | URBAN ECOLOGY | GENERAL ECOLOGY |
 |------|---------------|-----------------|
-| `Annual growth rate` | 11.2% | 7.9% | 
-| `Doubling time` | 6.5 years | 9.2 years | 
+| `Annual growth rate` | 12.8% | 5.6% | 
+| `Doubling time` | 5.7 years | 12.8 years | 
 | `R² (exponential fit)` | 0.9567 | 0.9777 | 
-| `P-value` | 4.04e-37 | 1.20e-44 | 
+| `P-value` | 2.88e-32 | 1.64e-34 | 
 | `Trend` | Significantly increasing | Significantly increasing |
 
 
@@ -146,10 +150,10 @@ EXPONENTIAL GROWTH COMPARISON: URBAN ECOLOGY vs GENERAL ECOLOGY:
 KEY COMPARATIVE INSIGHTS:
 
 GROWTH RATES:
-  ✓ Urban ecology is growing 3.3 percentage points FASTER
+  ✓ Urban ecology is growing 7.2 percentage points FASTER
 
 DOUBLING TIMES:
-  ✓ Urban ecology doubles 2.6 years FASTER than general ecology
+  ✓ Urban ecology doubles 7 years FASTER than general ecology
 
                 =   =   =   =   =   =   =
 RESEARCH IMPLICATIONS:
@@ -165,6 +169,7 @@ Now we'll move on to analysing each of the keywords, performing linear regressio
 
 ![Per keyword regression](images/per_keyword_regression.png)
 
+We see all keywords also follow exponential growth, though some are clearly more frequent than others, with urban ecosystems and urban green spaces both following an annual growth rate of over 15%. Though, as stated above, this rate might be a reflection of a poplarity boost from the pandemic, and might come down a bit in the future. The data needs to be revisited in some years to see how the trend continues.
 
 ============================================================================
 ## Geographical Data Analysis
@@ -176,15 +181,13 @@ In this next step, obtained geographical data to draw a choropleth map with the 
 ![Country treemap](images/treemap.png)
 
 
-As one could expect, the USA shows up on top, since they do have some of the largest research institutions in the world. To me, the surprising data comes from the UK, that manages to produce just under half the amount of papers while having less than a fourth of the population of the USA.
+The two top producers of research aren't actually too surprising. China can output a lot merely by size alone, but as we'll see below, there seems to have been an increase in interest, and possibly funding in recent years. Meanwhile, the USA has some of the largest research institutions in the world, so not surprising it showd up at the top either. To me, the surprising data comes from India, which is also massive, but produces less than a third of the papers, maybe due to low funding for scientific research in some areas.
 
-Other noteworthy datapoints to me are China and India, which I expected to have higher volume of publications by sheer number of their population. But perhaps, being emergent economies, scientific research wasn't really a thing until recently.
-
-To look into that, let's create a heatmap with temporal data for the top 20 paper producing countries.
+Moving on, I generated a heatmap of the top 20 countries to visualize how their research output changed over time.
 
 ![Country treemap](images/country_year_output.png)
 
 
-Indeed we can see that, while the USA and UK were scientifically active ever since urban ecology started gaining interest back in the 1970's, the rest of the world only started to look more ate the field much later. Of note, we see Italy, Germany, China, and Brazil starting to inch closer to the UK in production.
+Indeed we can see that, while the USA were scientifically active ever since urban ecology started gaining interest back in the 1970's, the rest of the world only started to look more at the field a bit later. Of note, we see what I mentioned above regarding China: the boom is relatively recent, having surpassed the USA in the 2010s. This also shows India might be starting to be more interested in the field, and could become a major player in the future.
 
 That's it. We looked briefly into the output of urban-related studies over the years and could see some interesting data from that. It indeed shows accelerated growth and more widespread interest, with potential to become more popular than general ecology in the future. However, that data is recent, so only time will tell if this trend will maintain in the future.
