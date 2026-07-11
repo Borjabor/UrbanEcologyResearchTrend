@@ -168,7 +168,7 @@ def get_country_name(alpha3_code):
     country = pycountry.countries.get(alpha_3=alpha3_code)
     return country.name if country else alpha3_code
 
-@st.cache_data(ttl=25)#92000) #One month data caching
+@st.cache_data(ttl=2592000) #One month data caching
 def load_data():
     """
     Load data from Supabase using pagination to get all records.
